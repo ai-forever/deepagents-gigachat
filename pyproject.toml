@@ -1,0 +1,71 @@
+[project]
+name = "deepagents-gigachat"
+version = "0.0.1a1"
+description = "DeepAgents harness profile for GigaChat"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+authors = [
+    { name = "AI Forever" },
+]
+keywords = ["deepagents", "gigachat", "langchain", "agent", "harness-profile", "plugin"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Typing :: Typed",
+]
+dependencies = [
+    "deepagents>=0.5.4",
+    "langchain-gigachat>=0.5.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/ai-forever/deepagents-gigachat"
+Repository = "https://github.com/ai-forever/deepagents-gigachat"
+Issues = "https://github.com/ai-forever/deepagents-gigachat/issues"
+
+[project.entry-points."deepagents.harness_profiles"]
+gigachat = "deepagents_gigachat:register_harness"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/deepagents_gigachat",
+    "/LICENSE",
+    "/README.md",
+    "/pyproject.toml",
+]
+exclude = [
+    "/.free-code-logs",
+    "/.github",
+    "/.gitignore",
+    "/.venv",
+    "/dist",
+    "/uv.lock",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["deepagents_gigachat"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "ruff>=0.15.12",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  quality:
+    name: Quality
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Run Ruff
+        run: uv run ruff check .
+
+      - name: Run tests
+        run: uv run pytest
+
+      - name: Build package
+        run: uv build
+
+      - name: Check package contents
+        run: |
+          uv run python - <<'PY'
+          from pathlib import Path
+          import tarfile
+          import zipfile
+
+          forbidden = (
+              ".free-code-logs",
+              ".env",
+              ".venv",
+              ".github",
+              "uv.lock",
+              "__pycache__",
+          )
+
+          dist = Path("dist")
+          sdists = list(dist.glob("*.tar.gz"))
+          wheels = list(dist.glob("*.whl"))
+          if len(sdists) != 1 or len(wheels) != 1:
+              raise SystemExit(
+                  f"Expected one sdist and one wheel, got {sdists!r} and {wheels!r}"
+              )
+
+          with tarfile.open(sdists[0]) as package:
+              names = package.getnames()
+          with zipfile.ZipFile(wheels[0]) as package:
+              names.extend(package.namelist())
+
+          matches = [name for name in names if any(part in name for part in forbidden)]
+          if matches:
+              raise SystemExit("Forbidden files in package:\n" + "\n".join(matches))
+          PY
