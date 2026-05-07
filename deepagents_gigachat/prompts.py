@@ -68,6 +68,7 @@ Never assume a single-file change is sufficient if other files depend on the sym
 - After each successful `edit_file`, immediately re-read the file before making another edit.
 - Never reuse an `old_string` from a previous read — always get fresh content.
 - Avoid overlapping edits; use separate `edit_file` calls with unique context blocks.
+- To insert content at the very beginning of a file, use edit_file: set old_string to the first 1-3 lines of the file and new_string to "new_header\n" + those same lines.
 
 ## New Files vs Editing Existing Files
 
@@ -82,8 +83,60 @@ Never assume a single-file change is sufficient if other files depend on the sym
 - Do NOT loop on the same failing call. Make at most two adjusted attempts after reading fresh context.
 - If still failing, explain the block and ask for guidance.
 
+## Grep-and-modify across many files (recipe)
+
+When asked to find files matching one or more patterns and modify all of them:
+1. Run separate literal `grep` calls for each pattern (one pattern per call), using `path_globs` like `/**/*.py` to scope the search.
+2. Collect and de-duplicate the list of matching file paths from all grep results.
+3. For each matched file, `read_file` it, then apply the change with `edit_file`.
+4. To insert a header at the very first line, use edit_file where old_string is the current first 1-3 lines and new_string is the new header followed by those same lines.
+5. Re-read each file after editing to confirm the change landed correctly.
+6. Do NOT combine multiple patterns into one grep call with `|` — grep is always literal.
+
+## Decorators and annotations
+
+- Implement new decorators as top-level module functions unless the prompt explicitly asks for a method or class-bound decorator.
+- Apply decorators with plain `@decorator_name`, not `@object.decorator_name`, unless told otherwise.
+- When adding a decorator to functions that already have other decorators (e.g. `@router.register(...)`), put the new decorator on its own line directly above or below existing decorators — do not replace them.
+- Prefer to stack the new decorator adjacent to existing ones without changing their relative order. Example:
+  @router.register("/path")
+  @log_request
+  def handler(...):
+      ...
+
 ## Post-change Sanity
 
 - After edits to code files, check for missing imports introduced by your change.
 - If `new_string` uses a name that needs import (e.g., `os`, `Path`, `json`), ensure the import exists at the top of the file.
+
+## Insert-at-top across many files (strong rule)
+- When asked to add the same header/comment at the very first line of multiple files that match a grep:
+  - For each file path matched, run read_file and capture the current first 1-3 lines exactly as they appear.
+  - Use edit_file where old_string is those first lines, and new_string is "<your header>\n" + the same first lines.
+  - Do NOT anchor the insertion to the grep match location (e.g., an `import os` line). The insertion target is always the beginning of the file, regardless of where the match occurred.
+  - Re-read the file to confirm the header is at line 1 and appears only once.
+
+## Refactor recipes (concrete how-tos)
+
+### Extract inline validation into a function
+1) read_file the module and locate the contiguous validation block you plan to extract.
+2) Create a top-level helper function with the requested signature placed above the first caller. Keep logic identical, raise the same ValueError messages.
+3) Replace the original inline block with a single call to the new helper.
+4) Re-read to verify the helper exists and the caller now calls it. Ensure no unused imports were added.
+
+### Move a function between files
+1) read_file the source file and copy the entire function definition block (including decorators and docstring) as old_string context.
+2) read_file the destination file and insert the function at a logical place (e.g., after imports) using edit_file with a unique old_string context in the destination (e.g., the top few lines) and new_string that prepends the function.
+3) In the source file, remove the original function definition and add/adjust the import to reference it from the new module.
+4) Re-read both files. Verify the function no longer appears in the source, appears in the destination, and the source now imports it with the exact requested import path.
+
+### Add a missing validation check
+1) read_file the validators module; locate the target function.
+2) Modify its logic in-place, adhering to the requested API (return types/messages).
+3) Re-read and quickly scan for syntax/indent errors.
+
+### Create a class in a new file and integrate
+1) Use write_file to create the new module with complete, importable code (including necessary imports and a trailing newline).
+2) Modify the integration point(s) to import and use the new class.
+3) Re-read all touched files and check imports.
 """

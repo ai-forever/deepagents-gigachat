@@ -37,16 +37,26 @@ def register_harness() -> None:
             tool_description_overrides={
                 "ls": (
                     "Lists all files in a directory. "
-                    "Use absolute virtual paths rooted at the current project working directory, "
-                    "for example '/gigachat_profiles.py' or '/tools'. "
+                    "Use absolute virtual paths rooted at the current project working directory. "
                     "Do NOT use host OS paths like '/Users/...'."
                 ),
                 "read_file": (
                     "Reads a file from the filesystem. "
                     "The file_path must be an absolute virtual path starting with '/'. "
-                    "In this environment, '/...' is relative to the project root (current working directory), "
-                    "so use '/gigachat_profiles.py' instead of '/Users/...'. "
-                    "Use offset/limit for large files, and always read a file before editing it."
+                    "Use offset/limit for large files (>200 lines) — pass integers, not strings. "
+                    "Always read a file before editing it. "
+                    "If a file is not found at the expected path, use glob to locate it by basename."
+                ),
+                "write_file": (
+                    "Create or overwrite a file with exact content. Use absolute virtual paths starting with '/'. "
+                    "Use write_file for new files or full rewrites; for small changes to existing files, use edit_file instead. "
+                    "Ensure the parent directory exists before writing. "
+                    "Do NOT include line-number prefixes from read_file output when writing content. "
+                    "End the file with a trailing newline."
+                ),
+                "glob": (
+                    "List files matching a pattern. Use absolute patterns like '/**/*.py'. "
+                    "Useful for discovering file locations by basename before editing."
                 ),
                 "grep": (
                     "Search for a text pattern across files. "
@@ -66,27 +76,25 @@ def register_harness() -> None:
                     "(a) single literal phrase, "
                     "(b) no pipe '|', "
                     "(c) optional path/glob uses absolute virtual paths. "
-                    "Special characters like '|', '(', ')', '[', ']' are treated as plain characters, not operators. "
-                    "Paths and optional search roots should use absolute virtual paths (starting with '/')."
+                    "Special characters like '|', '(', ')', '[', ']' are treated as plain characters, not operators."
                 ),
                 "edit_file": (
                     "Edit an existing file by replacing one exact old_string with new_string. "
                     "Before edit_file always read the target file with read_file. "
-                    "Use absolute virtual paths (for example '/gigachat_profiles.py'), not '/Users/...'. "
+                    "Use absolute virtual paths, not '/Users/...'. "
                     "Copy old_string 1:1 from read_file output (without line numbers), "
                     "including blank lines and indentation. Include 3-8 lines of context "
                     "above and below so old_string is unique. If edit_file returns "
-                    "'String not found', do not guess: re-read with more context and "
-                    "rebuild old_string. "
-                    "WRONG: old_string contains line-number prefixes like '40\\tdef foo():' from read_file output. "
+                    "'String not found', do not guess: re-read the file with more context and "
+                    "rebuild old_string from fresh content. "
+                    "WRONG: old_string contains line-number prefixes like '40\\tdef foo():'. "
                     "RIGHT: remove prefixes and use exact code text 'def foo():'. "
                     "WRONG: old_string is a hand-written approximation or misses blank lines/indentation. "
                     "RIGHT: copy exact bytes from read_file, preserving spacing. "
                     "WRONG: replacing a common short fragment like 'return kwargs' without unique context. "
                     "RIGHT: include surrounding lines (function signature + nearby lines) so the match is unique. "
-                    "After each successful edit_file call, run a quick import sanity check on the same file: "
-                    "if new_string introduces or keeps a name that needs import (for example 'os', 'Path'), "
-                    "ensure the import exists; if missing, add it immediately before finishing."
+                    "After each successful edit, re-read the file to confirm the change. "
+                    "If new_string uses a name that needs import, ensure the import exists."
                 ),
             },
             extra_middleware=(ThinkToolMiddleware(),),
