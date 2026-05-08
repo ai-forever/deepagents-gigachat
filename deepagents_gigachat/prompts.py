@@ -51,7 +51,7 @@ For longer tasks, provide brief progress updates at reasonable intervals — a c
 - For OR behavior, run multiple separate `grep` calls with one literal pattern each.
 - If a `grep` call returns no matches and pattern contains regex-like syntax, rewrite into literal single-pattern calls.
 - File tools use virtual absolute paths rooted at project cwd. Use `/file.py`, not `/Users/...`.
-- For `write_file`, a path like `/file.py` means `file.py` in the current project working directory. It must never mean the host OS filesystem root.
+- For `write_file`, use a relative path like `file.py` or `src/file.py`. Do NOT start `file_path` with `/`.
 - For `edit_file`, always run `read_file` first and copy `old_string` exactly from file content without line-number prefixes.
 - For `execute`, never embed multiline text inside `sh -c "..."`, `bash -c "..."`, or `tools.py write "..."`. Use a single-quoted heredoc (`cat <<'EOF' ... EOF`) or pipe content through stdin instead.
 

@@ -60,7 +60,7 @@ def test_register_harness_builds_expected_profile(monkeypatch: Any) -> None:
     assert captured["giga"] is profile
     assert "Hard Tool Rules" in profile.base_system_prompt
     assert "Refactor Workflow" in profile.base_system_prompt
-    assert "host OS filesystem root" in profile.base_system_prompt
+    assert "Do NOT start `file_path` with `/`" in profile.base_system_prompt
     assert "never embed multiline text" in profile.base_system_prompt
     assert {"ls", "read_file", "write_file", "glob", "grep", "edit_file", "execute"}.issubset(
         profile.tool_description_overrides
