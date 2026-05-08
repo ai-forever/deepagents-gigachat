@@ -5,9 +5,9 @@ for [`deepagents`](https://github.com/langchain-ai/deepagents) tuned for
 [GigaChat](https://giga.chat/) models.
 
 The profile replaces the default `deepagents` system prompt, rewrites the
-descriptions of file tools (`ls`, `read_file`, `grep`, `edit_file`) to match
-GigaChat's tool-calling behavior, and adds a `think` middleware tool for
-structured intermediate reasoning.
+descriptions of file and shell tools (`ls`, `read_file`, `write_file`, `glob`,
+`grep`, `edit_file`, `execute`) to match GigaChat's tool-calling behavior, and
+adds a `think` middleware tool for structured intermediate reasoning.
 
 Once installed, the profile is registered automatically via the
 `deepagents.harness_profiles` entry point — no code changes required.
@@ -77,8 +77,8 @@ gigachat = "deepagents_gigachat:register_harness"
 ```
 
 The package entry point is named `gigachat` for discovery. The harness profile
-itself is registered under the provider key `giga`, matching the provider key
-used by `deepagents`.
+is registered under both provider keys: `gigachat` for model specs such as
+`gigachat:GigaChat-3-Ultra`, and `giga` as a compatibility alias.
 
 ## Use With `deepagents-cli`
 
