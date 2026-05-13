@@ -1,0 +1,112 @@
+"""Command-line entry point for the benchmark.
+
+Examples:
+
+    # List all tasks
+    uv run python -m harness_bench list
+
+    # Run the whole benchmark against GigaChat (uses .env for credentials)
+    uv run python -m harness_bench run
+
+    # Run a couple of tasks and keep the temp workspaces for inspection
+    uv run python -m harness_bench run --task task_01_create_hello --task task_06_toggle_debug --keep
+
+    # Sanity-check verifiers without any LLM calls
+    uv run python -m harness_bench verify-gold
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+
+from harness_bench.runner import run_all, summarize, verify_gold
+from harness_bench.tasks import ALL_TASKS
+
+
+def _cmd_list(_args: argparse.Namespace) -> int:
+    for task in ALL_TASKS:
+        tags = f"  [{', '.join(task.tags)}]" if task.tags else ""
+        print(f"  {task.id} — {task.name}{tags}")
+    print(f"\nTotal: {len(ALL_TASKS)} tasks")
+    return 0
+
+
+def _cmd_run(args: argparse.Namespace) -> int:
+    results = run_all(
+        task_ids=args.task,
+        keep_workspace=args.keep,
+        recursion_limit=args.recursion_limit,
+        concurrency=args.concurrency,
+    )
+    summarize(results)
+    return 0 if all(r.passed for r in results) else 1
+
+
+def _cmd_verify_gold(args: argparse.Namespace) -> int:
+    results = verify_gold(task_ids=args.task)
+    failed = [r for r in results if not r.passed]
+    print()
+    print("=" * 64)
+    print(f"Gold-verification: {len(results) - len(failed)}/{len(results)} OK")
+    if failed:
+        print()
+        print("Verifier failures (likely bugs in the verifier or gold solution):")
+        for r in failed:
+            head = (r.message or "").splitlines()
+            print(f"  - {r.task_id}: {head[0] if head else ''}")
+        return 1
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="python -m harness_bench")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    p_list = sub.add_parser("list", help="List all benchmark tasks")
+    p_list.set_defaults(func=_cmd_list)
+
+    p_run = sub.add_parser("run", help="Run benchmark with the GigaChat agent")
+    p_run.add_argument(
+        "--task",
+        action="append",
+        help="Task id (repeatable). Run all tasks if omitted.",
+    )
+    p_run.add_argument(
+        "--keep",
+        action="store_true",
+        help="Keep temp workspaces for inspection",
+    )
+    p_run.add_argument(
+        "--recursion-limit",
+        type=int,
+        default=80,
+        help="Cap on agent loop iterations per task (default: 80)",
+    )
+    p_run.add_argument(
+        "--concurrency",
+        type=int,
+        default=1,
+        help="Run up to N tasks in parallel (default: 1; uses a thread pool, "
+        "each task still has its own isolated TemporaryDirectory).",
+    )
+    p_run.set_defaults(func=_cmd_run)
+
+    p_gold = sub.add_parser(
+        "verify-gold",
+        help="Sanity-check verifiers against the gold solutions (no LLM calls)",
+    )
+    p_gold.add_argument("--task", action="append", help="Task id (repeatable)")
+    p_gold.set_defaults(func=_cmd_verify_gold)
+
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    return int(args.func(args))
+
+
+if __name__ == "__main__":
+    sys.exit(main())
