@@ -57,6 +57,10 @@ packages = ["deepagents_gigachat"]
 dev = [
     "pytest>=9.0.2",
     "ruff>=0.15.12",
+    # Used by harness_bench tasks that work with Excel files. Lives in dev
+    # because the bench is a dev/eval tool — downstream installers of
+    # `deepagents-gigachat` don't need it.
+    "openpyxl>=3.1",
 ]
 
 [tool.ruff]
