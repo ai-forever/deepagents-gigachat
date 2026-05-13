@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -266,6 +267,87 @@ def all_of(*verifiers: Verifier) -> Verifier:
                 return VerifyResult(False, r.message)
             messages.append(r.message)
         return VerifyResult(True, "; ".join(messages))
+
+    return _check
+
+
+def pytest_passes(test_dir: str = "tests", *, timeout: int = 60) -> Verifier:
+    """Verifier: run `python -m pytest -q <test_dir>` and require exit 0."""
+
+    def _check(ws: Path) -> VerifyResult:
+        try:
+            result = subprocess.run(  # noqa: S603 — benchmark only
+                [sys.executable, "-m", "pytest", "-q", test_dir],
+                cwd=ws,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=timeout,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            return VerifyResult(False, f"pytest timed out after {timeout}s")
+        if result.returncode == 0:
+            return VerifyResult(True, f"pytest {test_dir}/ passed")
+        tail = (result.stdout + result.stderr).strip()[-400:]
+        return VerifyResult(False, f"pytest exit={result.returncode}; tail: {tail!r}")
+
+    return _check
+
+
+def xlsx_cell_equals(rel: str, sheet: str, cell: str, expected: Any) -> Verifier:
+    """Verifier: assert that an xlsx cell equals the expected value.
+
+    Numbers compared loosely (so `999` and `999.0` both pass when the gold is
+    an integer). Strings compared exactly.
+    """
+
+    def _check(ws: Path) -> VerifyResult:
+        import openpyxl  # noqa: PLC0415 — heavy import; only when verifier runs
+
+        p = ws / rel
+        if not p.exists():
+            return VerifyResult(False, f"{rel} missing")
+        wb = openpyxl.load_workbook(p, data_only=True)
+        if sheet not in wb.sheetnames:
+            return VerifyResult(False, f"{rel} has no sheet {sheet!r}; sheets={wb.sheetnames}")
+        value = wb[sheet][cell].value
+        if value == expected:
+            return VerifyResult(True, f"{rel}[{sheet}!{cell}] == {expected!r}")
+        try:
+            if float(value) == float(expected):
+                return VerifyResult(True, f"{rel}[{sheet}!{cell}] ≈ {expected!r}")
+        except (TypeError, ValueError):
+            pass
+        return VerifyResult(False, f"{rel}[{sheet}!{cell}] = {value!r}, expected {expected!r}")
+
+    return _check
+
+
+def sqlite_query_returns(rel: str, query: str, expected: Any) -> Verifier:
+    """Verifier: run a query on a sqlite db and compare the first cell.
+
+    Useful for "count rows", "sum a column", "look up a value by id" tasks.
+    """
+
+    def _check(ws: Path) -> VerifyResult:
+        p = ws / rel
+        if not p.exists():
+            return VerifyResult(False, f"{rel} missing")
+        try:
+            conn = sqlite3.connect(p)
+            try:
+                row = conn.execute(query).fetchone()
+            finally:
+                conn.close()
+        except sqlite3.Error as exc:
+            return VerifyResult(False, f"{rel} sqlite error: {exc}")
+        if row is None:
+            return VerifyResult(False, f"{rel}: query returned no rows")
+        value = row[0]
+        if value == expected:
+            return VerifyResult(True, f"{rel}: {query!s} == {value!r}")
+        return VerifyResult(False, f"{rel}: {query!s} = {value!r}, expected {expected!r}")
 
     return _check
 

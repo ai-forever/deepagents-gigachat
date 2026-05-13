@@ -22,8 +22,6 @@ import io
 import json
 import re
 import sqlite3
-import subprocess
-import sys
 from collections import Counter
 from pathlib import Path
 
@@ -37,88 +35,10 @@ from harness_bench.verifiers import (
     file_lines_equal,
     file_matches_regex,
     file_text_equals,
+    pytest_passes,
     python_callable_returns,
+    xlsx_cell_equals,
 )
-
-# ---------------------------------------------------------------------------
-# Shared helpers (verifiers + setup callbacks)
-# ---------------------------------------------------------------------------
-
-
-def _pytest_passes(test_dir: str = "tests", *, timeout: int = 60):
-    """Verifier: run `python -m pytest -q <test_dir>` and require exit 0."""
-
-    def _check(ws: Path) -> VerifyResult:
-        try:
-            result = subprocess.run(  # noqa: S603 — benchmark only
-                [sys.executable, "-m", "pytest", "-q", test_dir],
-                cwd=ws,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                timeout=timeout,
-                check=False,
-            )
-        except subprocess.TimeoutExpired:
-            return VerifyResult(False, f"pytest timed out after {timeout}s")
-        if result.returncode == 0:
-            return VerifyResult(True, f"pytest {test_dir}/ passed")
-        tail = (result.stdout + result.stderr).strip()[-400:]
-        return VerifyResult(False, f"pytest exit={result.returncode}; tail: {tail!r}")
-
-    return _check
-
-
-def _xlsx_cell_equals(rel: str, sheet: str, cell: str, expected):
-    """Verifier: assert workbook cell value equals expected (string or number)."""
-
-    def _check(ws: Path) -> VerifyResult:
-        import openpyxl  # noqa: PLC0415 — heavy import; only when verifier runs
-
-        p = ws / rel
-        if not p.exists():
-            return VerifyResult(False, f"{rel} missing")
-        wb = openpyxl.load_workbook(p, data_only=True)
-        if sheet not in wb.sheetnames:
-            return VerifyResult(False, f"{rel} has no sheet {sheet!r}; sheets={wb.sheetnames}")
-        value = wb[sheet][cell].value
-        if value == expected:
-            return VerifyResult(True, f"{rel}[{sheet}!{cell}] == {expected!r}")
-        # Accept numeric equivalence (e.g. 999 vs 999.0)
-        try:
-            if float(value) == float(expected):
-                return VerifyResult(True, f"{rel}[{sheet}!{cell}] ≈ {expected!r}")
-        except (TypeError, ValueError):
-            pass
-        return VerifyResult(False, f"{rel}[{sheet}!{cell}] = {value!r}, expected {expected!r}")
-
-    return _check
-
-
-def _sqlite_query_returns(rel: str, query: str, expected):
-    """Verifier: run a query on a sqlite db and compare the first cell."""
-
-    def _check(ws: Path) -> VerifyResult:
-        p = ws / rel
-        if not p.exists():
-            return VerifyResult(False, f"{rel} missing")
-        try:
-            conn = sqlite3.connect(p)
-            try:
-                row = conn.execute(query).fetchone()
-            finally:
-                conn.close()
-        except sqlite3.Error as exc:
-            return VerifyResult(False, f"{rel} sqlite error: {exc}")
-        if row is None:
-            return VerifyResult(False, f"{rel}: query returned no rows")
-        value = row[0]
-        if value == expected:
-            return VerifyResult(True, f"{rel}: {query!s} == {value!r}")
-        return VerifyResult(False, f"{rel}: {query!s} = {value!r}, expected {expected!r}")
-
-    return _check
-
 
 # ---------------------------------------------------------------------------
 # Group A: CSV (10 tasks, 101..110)
@@ -476,7 +396,7 @@ TASK_113 = Task(
     setup_files={},
     setup_callback=_xlsx_113_setup,
     gold_callback=_xlsx_113_gold_callback,
-    verifier=_xlsx_cell_equals("inventory.xlsx", "Inventory", "C3", 999),
+    verifier=xlsx_cell_equals("inventory.xlsx", "Inventory", "C3", 999),
 )
 
 
@@ -1035,7 +955,7 @@ TASK_128 = Task(
         ),
     },
     gold_files={"math_lib.py": "def add(a, b):\n    return a + b\n"},
-    verifier=_pytest_passes("tests"),
+    verifier=pytest_passes("tests"),
 )
 
 
@@ -1097,7 +1017,7 @@ TASK_129 = Task(
             "        return len(self._items)\n"
         ),
     },
-    verifier=_pytest_passes("tests"),
+    verifier=pytest_passes("tests"),
 )
 
 
@@ -1136,7 +1056,7 @@ TASK_130 = Task(
             '    return re.findall(r"\\d{3}-\\d{3}-\\d{4}", text)\n'
         ),
     },
-    verifier=_pytest_passes("tests"),
+    verifier=pytest_passes("tests"),
 )
 
 
