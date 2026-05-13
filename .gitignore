@@ -219,3 +219,5 @@ __marimo__/
 
 # Local agent logs
 .free-code-logs/
+.cursor
+experiments/

@@ -126,6 +126,16 @@ Run the CLI:
 deepagents
 ```
 
+## Examples
+
+Запускаемые примеры лежат в [`examples/`](examples/). Самый простой —
+`examples/basic_agent.py`: создаёт `GigaChat`, оборачивает в
+`create_deep_agent` и задаёт один вопрос. Запуск:
+
+```bash
+uv run python examples/basic_agent.py
+```
+
 ## Lint
 
 Linting, tests, and package build checks are required in CI:
