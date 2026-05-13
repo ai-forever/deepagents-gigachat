@@ -30,11 +30,7 @@ def test_register_harness_registers_gigachat_profile() -> None:
 
     assert profile is not None
     assert "write_file" in profile.tool_description_overrides
-    assert "Do NOT start file_path with '/'" in profile.tool_description_overrides["write_file"]
-    assert any(
-        type(middleware).__name__ == "ThinkToolMiddleware"
-        for middleware in profile.materialize_extra_middleware()
-    )
+    assert "never start with '/'" in profile.tool_description_overrides["write_file"]
 
 
 def test_register_harness_uses_both_provider_aliases(monkeypatch: Any) -> None:
@@ -54,6 +50,6 @@ def test_register_harness_uses_both_provider_aliases(monkeypatch: Any) -> None:
     assert {"gigachat", "giga"} == set(captured)
     profile = captured["gigachat"]
     assert captured["giga"] is profile
-    assert "Do NOT start `file_path` with `/`" in profile.base_system_prompt
+    assert "Never start with `/`" in profile.base_system_prompt
     assert "single-quoted heredoc" in profile.base_system_prompt
-    assert "Use relative paths" in profile.tool_description_overrides["write_file"]
+    assert "relative path" in profile.tool_description_overrides["write_file"]

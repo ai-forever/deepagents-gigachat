@@ -28,27 +28,34 @@ def register_harness() -> None:
         base_system_prompt=f"{BASE_SYSTEM_PROMPT}\n\n",
         tool_description_overrides={
             "write_file": (
-                "Create or overwrite a file. Use relative paths like 'foo.py' or "
-                "'src/foo.py'. Do NOT start file_path with '/'. "
-                "Use write_file for new files or full rewrites; use edit_file for small "
-                "changes. Do not include line-number prefixes from read_file output."
+                "Create a file or overwrite it completely. Use a relative path "
+                "like 'foo.py' or 'src/foo.py' (never start with '/'). The "
+                "content is the file body verbatim — do NOT include line-number "
+                "prefixes from read_file output. Use this for new files or full "
+                "rewrites; use edit_file for small changes."
             ),
             "edit_file": (
-                "Edit a file by replacing one exact old_string with new_string. "
-                "Always read_file first and copy old_string 1:1 from the read output "
-                "(no line-number prefixes), including blank lines and indentation. "
-                "Include 3-8 lines of context so old_string is unique."
+                "Replace one exact occurrence of old_string with new_string in "
+                "an existing file. Copy old_string verbatim from a prior "
+                "read_file (without the leading '<line_no>\\t' prefix), "
+                "including blank lines and indentation. Add a few lines of "
+                "surrounding context so old_string is unique within the file."
             ),
             "grep": (
-                "Search for a literal text pattern. Pattern is NOT regex. "
-                "Pass exactly ONE literal phrase per call. "
-                "For OR behavior run multiple grep calls."
+                "Search for a literal substring (NOT a regex) across files. "
+                "Pass exactly ONE phrase per call. To search for several "
+                "alternatives run grep several times. The result lists matching "
+                "lines — read it directly instead of opening every matched "
+                "file again."
             ),
             "execute": (
-                "Run a shell command. Never embed multiline content inside "
-                "sh -c \"...\" or bash -c \"...\"; use a single-quoted heredoc "
-                "(cat <<'EOF' ... EOF) or pipe via stdin. Prefer write_file/edit_file "
-                "for file content changes."
+                "Run one short shell command (e.g. 'rm a.txt', 'mv old new', "
+                "'mkdir -p logs'). Use this for filesystem operations that the "
+                "file tools cannot do (delete, rename, move, chmod). Never "
+                "embed multi-line content via sh -c \"...\" or bash -c \"...\" "
+                "with double quotes; if you must run a multi-line snippet, use "
+                "a single-quoted heredoc (cat <<'EOF' ... EOF). Prefer "
+                "write_file / edit_file for changing file content."
             ),
         },
         extra_middleware=(ThinkToolMiddleware(),),
