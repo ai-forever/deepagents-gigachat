@@ -104,7 +104,88 @@ uv run python -m harness_bench verify-gold
 
 ## Результаты прогонов
 
-### Финальная сводка (150 задач, профиль v3 + `think`)
+### Финальная сводка (200 задач, профиль v3 + `think`)
+
+После 150-задачной серии бенчмарк дорасширили ещё на 50 значительно более
+сложных задач (`tasks_extreme.py`, 151–200): композитные пайплайны
+CSV/SQLite/XLSX/JSONL, архивы (zip/gzip/tar), массовый рефакторинг
+проекта, алгоритмы с pytest (quicksort, LRU cache, linked list, tree
+inorder, priority queue), статистика (rolling avg, histogram, z-score,
+percentiles, pivot table), XML/markdown с YAML-frontmatter, hard
+composite — three-way joins, hourly log aggregation, dead-function
+detection. Все 200 задач проходят `verify-gold`.
+
+| Дата | Конфигурация | Параллелизм | Результат | % | Δ к no-profile |
+| --- | --- | --- | --- | --- | --- |
+| 2026-05-13 | без профиля | 5 | 134 / 200 | 67.0 % | — |
+| 2026-05-13 | **профиль v3 + `ThinkToolMiddleware`** (зафиксирован) | 5 | **153 / 200** | **76.5 %** | **+19 (+9.5 п. п.)** |
+
+#### Расходящиеся задачи
+
+**27 задач прошли только с профилем** (профиль реально помог):
+
+```
+task_11_count_py             task_113_xlsx_update_cell
+task_14_sum_numbers          task_117_json_to_yaml
+task_21_rename_file          task_143_grep_largest_file
+task_22_delete_file          task_144_grep_duplicate_funcs
+task_25_sort_lines           task_147_log_filter_404
+task_39_reverse_lines        task_149_sqlite_to_json
+task_47_dedupe_lines         task_159_unzip_extract
+task_48_append_eof_each      task_161_gzip_compress
+task_56_move_to_subdir       task_170_impl_lru_cache
+task_85_add_logging_import   task_179_csv_zscore_outliers
+task_98_count_unique         task_181_csv_cumsum
+task_102_csv_filter_adults   task_182_csv_group_agg
+task_186_find_call_sites     task_188_csv_three_way_join
+                             task_196_xlsx_to_csv_and_json
+```
+
+Узнаваемые группы:
+- **xlsx / archive / sqlite** — все три xlsx-задачи 113/196, обе
+  архивные 159/161, sqlite-экспорт 149: профиль явно помогает
+  агенту выбирать `execute` + Python-скрипт вместо ручного
+  чтения файла;
+- **rename / move / двухходовки** (21, 22, 56, 188) и
+  «обработай все строки» (47, 48, 25, 39, 98) — продолжают давать
+  стабильное преимущество, ровно как и на 150-задачном бенче;
+- **сложные алгоритмы и аналитика** (170 LRU, 179 z-score,
+  181/182 CSV-агрегаты) — впервые проявились на этом масштабе,
+  и тут профиль тоже выигрывает.
+
+**8 задач прошли только без профиля** (профиль ухудшает):
+
+```
+task_24_add_header_comment      task_146_log_count_5xx
+task_42_snake_case              task_178_csv_pivot_count
+task_51_count_total_lines       task_190_concat_dedupe_sort
+task_82_add_csv_column          task_191_sqlite_revenue_report
+```
+
+В этом списке доминируют:
+- задачи, где `think`-тулза подсаживает агента в длинный цикл
+  `read → think → edit → think → ...` и упирается в
+  `GRAPH_RECURSION_LIMIT` или в исключение `model`-узла
+  (`task_24`, `task_146`);
+- агрегаты, где с профилем модель чаще выбирает «прочитать-и-посчитать»
+  и ошибается в одной арифметической детали
+  (`task_51`, `task_178`, `task_190`, `task_191`).
+
+**39 задач стабильно фейлятся в обеих конфигурациях** — это потолок
+GigaChat-3-Ultra на текущем промпте: в основном это `model`-узловые
+исключения на сложных tool-выходах (XML-парсинг, multi-key JSON,
+markdown frontmatter), часть pytest-задач с замысловатой структурой
+(`task_171_impl_linked_list`, `task_172_impl_tree_inorder`,
+`task_193_impl_memoize`), задачи `find_dead_funcs` / `task_187` и
+часть hard composite.
+
+Чистый эффект профиля: **+27 побед − 8 регрессий = +19**, что
+соответствует росту с 67.0 % до 76.5 %. Это **больше**, чем на 150 задачах
+(+7..+10), и **намного больше**, чем на 100 (+5/+6). Закономерность та
+же: чем сложнее и разнообразнее задачи, тем заметнее преимущество
+профиля.
+
+### Промежуточная сводка (150 задач, итерации профиля)
 
 После 100-задачной серии бенчмарк дорасширили ещё на 50 заметно более сложных
 задач (`tasks_hard.py`, 101–150): операции с CSV/Excel/JSON/JSONL/YAML/INI/TOML
