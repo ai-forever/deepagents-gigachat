@@ -1,128 +1,165 @@
 # harness_bench
 
-Простой бенчмарк из 30 задач на работу с файлами. Используется, чтобы
-прогонять `deepagents` + `langchain-gigachat` с
-[`HarnessProfile`](../deepagents_gigachat/harness_profile.py) и смотреть, как
-модель справляется с типичными операциями: создание файла, правка кода,
-переименование, поиск, конвертация форматов и т. п.
+A small in-tree benchmark of **200 file-operation tasks** used to drive
+`deepagents` + `langchain-gigachat` (with this repository's
+[`HarnessProfile`](../deepagents_gigachat/harness_profile.py)) and see how
+well the model handles common operations: file creation, code edits,
+renames, search, format conversion, multi-file refactoring, running
+pytest, etc.
 
-## Что внутри
+## What's inside
 
-| Файл | Назначение |
+| File | Purpose |
 | --- | --- |
-| `tasks.py` | Все 30 задач: setup-файлы, инструкция агенту, верификатор, эталонное решение. |
-| `verifiers.py` | Маленькие хелперы для написания верификаторов: `file_exists`, `file_contains`, `json_file_has`, `python_runs`, `python_callable_returns`, `all_of` и т. п. |
-| `core.py` | `Task` (dataclass) и `VerifyResult`. |
-| `runner.py` | Прогон задачи в изолированной временной директории через `LocalShellBackend(virtual_mode=True)`. |
-| `__main__.py` | CLI: `list`, `run`, `verify-gold`. |
+| `tasks.py` | Tasks 1–30 plus the top-level `ALL_TASKS` registry. |
+| `tasks_extra.py` | Tasks 31–60: second wave (multi-file refactors, dedupe, log filtering, CSV ↔ markdown conversions). |
+| `tasks_more.py` | Tasks 61–100: third wave (.env edits, nested JSON, dataclasses, simple regex extraction, INI/TOML/YAML stubs, CSV row splitting). |
+| `tasks_hard.py` | Tasks 101–150: harder wave (CSV/Excel/SQLite aggregates, JSON/JSONL, YAML/INI/TOML, Python implementation + pytest, multi-file `grep`, Apache log parsing). |
+| `tasks_extreme.py` | Tasks 151–200: hardest wave (composite pipelines, archives, project-wide refactors, algorithms with pytest, statistics, XML/markdown, three-way joins). |
+| `verifiers.py` | Helpers for writing verifiers: `file_exists`, `file_contains`, `file_lines_equal`, `file_matches_regex`, `json_file_has`, `python_runs`, `python_callable_returns`, `pytest_passes`, `xlsx_cell_equals`, `sqlite_query_returns`, `all_of`, etc. |
+| `core.py` | `Task` (dataclass) and `VerifyResult`. Supports `setup_callback`/`gold_callback` hooks for binary fixtures (xlsx, sqlite, zip, tar). |
+| `runner.py` | Runs a task inside an isolated temporary directory backed by `LocalShellBackend(virtual_mode=True)`, with optional `--concurrency` via a thread pool. |
+| `runner_cli.py` | Alternative runner that drives an external CLI agent (default: `free-code -p --model haiku --dangerously-skip-permissions`). |
+| `__main__.py` | CLI: `list`, `run`, `run-cli`, `verify-gold`. |
 
-Каждая задача независима: для неё создаётся свежий `tempfile.TemporaryDirectory`,
-туда выкладываются `setup_files`, в эту же директорию `LocalShellBackend`
-указывает свой `root_dir`. Агент видит только эти файлы (благодаря
-`virtual_mode=True` он не может выйти из песочницы через путь, хотя `execute`
-по-прежнему запускает shell на хосте — бенчмарк рассчитан на доверенное
-окружение). После прогона запускается `task.verify(workspace)`.
+Each task is independent: the runner creates a fresh
+`tempfile.TemporaryDirectory`, writes `setup_files` (and optionally calls
+`setup_callback` for binary fixtures), then points `LocalShellBackend` at
+that directory as its `root_dir`. The agent only sees those files —
+`virtual_mode=True` blocks path traversal through the file tools, though
+`execute` still spawns a real shell on the host (the benchmark is meant
+for a trusted local environment). After the agent stops, the per-task
+verifier inspects the workspace.
 
-## Категории задач (30 шт.)
+## Task categories (200 in total)
 
-- **Создание файлов** (1–5, 29): `hello.py`, `data.json`, `src/utils.py`,
-  `numbers.txt`, `greeting.py`, `.gitignore`.
-- **Точечные правки кода** (6–10, 16–18): тоггл `DEBUG`, переименование функции,
-  бамп версии, замена строки, бамп `pyproject.toml`, добавление аннотаций
-  типов, `from __future__ import annotations`, добавление docstring.
-- **Чтение и подсчёт** (11–15, 25): количество `.py`-файлов, выборка
-  `TODO`-строк, подсчёт строк CSV, сумма чисел, первое слово, сортировка
-  строк.
-- **Рефакторинг** (19, 20, 24): удаление устаревшей функции, перенос функции
-  между файлами, добавление шапки в файлы.
-- **Файловые операции** (21–23, 30): переименование, удаление, дозапись в
-  лог, добавление пункта в список задач.
-- **JSON/конфиги** (26–28): добавление ключа, бамп зависимости, конвертация
-  CSV → JSON.
+- **File creation** (incl. 1–5, 29, 44, 46, 89, 99): `hello.py`,
+  `data.json`, `src/utils.py`, `numbers.txt`, `greeting.py`, `.gitignore`,
+  `requirements.txt`, `src/__init__.py`, `.pre-commit-config.yaml`,
+  `README.md`.
+- **Surgical code edits** (incl. 6–10, 16–18, 53, 57, 67, 78, 83, 87,
+  90): toggling `DEBUG`, renaming a function, bumping a version,
+  replacing a string, bumping `pyproject.toml`, adding type hints,
+  `from __future__ import annotations`, adding a docstring, replacing
+  quotes, flipping booleans, sorting imports.
+- **Reading and counting** (incl. 11–15, 25, 32–33, 35, 38–39, 41, 43,
+  47, 51–52, 71, 86, 92, 98, 110, 175–182): counting `.py` files, picking
+  out `TODO` lines, line counts, sums, sorts, dedupe, percentiles,
+  rolling averages, histograms, pivot tables, z-score outliers.
+- **Refactoring** (incl. 19, 20, 24, 31, 42, 45, 50, 56, 74, 80, 94,
+  162–166, 192): removing a deprecated function, moving a function
+  between files, headers, multi-file renames, extracting constants into
+  a module, splitting a module by class, converting to `@dataclass`,
+  project-wide import rewrites.
+- **Filesystem operations** (incl. 21–23, 30, 48, 60, 159–161, 198):
+  rename, delete, append, copyright headers, gzip, zip create/extract,
+  tar extract, rename a directory.
+- **JSON / config** (incl. 26–28, 49, 54–55, 61–63, 68–70, 91, 115–122,
+  185, 197): adding a key, bumping a dependency, CSV ↔ JSON, CSV ↔
+  TSV, conftest fixtures, swapping CSV columns, nested JSON edits,
+  YAML/INI/TOML edits, YAML front-matter parsing.
+- **Python implementation + pytest** (incl. 125–134, 167–174,
+  193–195, 200): `fib`, `factorial`, `is_palindrome`, `count_vowels`,
+  `quicksort`, `binary_search`, `is_balanced`, `LRUCache`, `LinkedList`,
+  `TreeNode + inorder`, `is_anagram`, `two_sum`, `memoize`, `Timer`
+  context manager, `MyRange` iterator, `PriorityQueue`.
+- **Multi-file `grep`/`glob` search** (incl. 135–144, 186–187):
+  counting `import`/`def`/`assert` across a project tree, listing
+  files containing a marker, finding duplicates, dead-function
+  detection.
+- **Excel (xlsx)** (incl. 111–113, 148, 158, 196): cell extraction,
+  column sums, cell updates, CSV ↔ xlsx, per-sheet split.
+- **SQLite** (incl. 123–124, 149, 191, 199): counts, sums, JOIN +
+  CSV export, JSON export, filtered queries.
+- **Apache log parsing** (incl. 145–147, 189): top IP, 5xx count,
+  status filter, hourly aggregation.
+- **Composite pipelines** (incl. 151–158, 188–190): CSV → JSON
+  aggregates with filter+groupby+sort, SQLite JOIN → JSON, xlsx →
+  markdown report, three-way joins, multi-CSV concat + dedupe.
 
-Все верификаторы механические — никакого LLM-as-judge: проверяем содержимое
-файлов (точное, по регулярке, по списку строк), парсим JSON, запускаем
-`python file.py` и сравниваем stdout, или импортируем модуль и зовём функцию.
+Every verifier is mechanical — no LLM-as-judge: exact content checks,
+regex matches, line lists, JSON parsing, running `python file.py` and
+comparing stdout, or importing a module and calling a function.
 
-## Запуск
+## Running the benchmark
 
-Бенчмарк живёт внутри этого же `uv`-проекта, так что отдельная установка
-не нужна — достаточно убедиться, что зависимости установлены:
+The bench lives inside the same `uv` project, so no separate install is
+needed — just sync deps:
 
 ```bash
 uv sync
 ```
 
-И задать креды GigaChat (как в `examples/basic_agent.py`):
+Then provide GigaChat credentials (same as `examples/basic_agent.py`):
 
 ```bash
 export GIGACHAT_CREDENTIALS=...
-# либо
+# or
 export GIGACHAT_USER=...
 export GIGACHAT_PASSWORD=...
 ```
 
-Их же можно положить в `.env` — `runner.py` подхватит файл из корня репо.
+These can also live in `.env` — `runner.py` loads it from the repo root.
 
-### Список задач
+### List all tasks
 
 ```bash
 uv run python -m harness_bench list
 ```
 
-### Прогон бенчмарка
+### Run the benchmark
 
 ```bash
-# все 100 задач подряд
+# all 200 tasks in sequence
 uv run python -m harness_bench run
 
-# параллельный прогон (по 5 задач одновременно — каждая в своём workspace)
+# parallel run (5 tasks at a time — each in its own workspace)
 uv run python -m harness_bench run --concurrency 5
 
-# только конкретные задачи
+# specific tasks only
 uv run python -m harness_bench run \
     --task task_01_create_hello \
     --task task_06_toggle_debug
 
-# оставить временные рабочие директории на диске (для разбора фейлов)
+# keep the temp workspaces on disk (useful for debugging failures)
 uv run python -m harness_bench run --task task_20_move_function --keep
 ```
 
-В конце прогона печатается сводка `Passed: N/30` и список упавших задач с
-первой строкой сообщения от верификатора.
+At the end the runner prints `Passed: N/200` and a one-line summary for
+every failed task.
 
-### Проверка верификаторов без LLM
+### Verifying without an LLM
 
-В каждой задаче лежит `gold_files` — состояние воркспейса, какое получилось бы у
-«идеального» агента. Команда `verify-gold` накатывает его и сразу прогоняет
-верификатор, не дёргая модель. Полезно, когда вы пишете новую задачу и хотите
-убедиться, что верификатор не падает на корректном решении:
+Each task carries `gold_files` — the workspace state a "perfect" agent
+would produce. The `verify-gold` command applies the gold solution and
+runs the verifier without ever calling the model. Handy when adding new
+tasks to make sure the verifier accepts a correct solution:
 
 ```bash
 uv run python -m harness_bench verify-gold
 ```
 
-## Результаты прогонов
+## Results
 
-### Финальная сводка (200 задач, профиль v3 + `think`)
+### Final summary (200 tasks, profile v3 + `think`)
 
-После 150-задачной серии бенчмарк дорасширили ещё на 50 значительно более
-сложных задач (`tasks_extreme.py`, 151–200): композитные пайплайны
-CSV/SQLite/XLSX/JSONL, архивы (zip/gzip/tar), массовый рефакторинг
-проекта, алгоритмы с pytest (quicksort, LRU cache, linked list, tree
-inorder, priority queue), статистика (rolling avg, histogram, z-score,
-percentiles, pivot table), XML/markdown с YAML-frontmatter, hard
-composite — three-way joins, hourly log aggregation, dead-function
-detection. Все 200 задач проходят `verify-gold`.
+After the 150-task wave the bench was extended with 50 significantly
+harder tasks (`tasks_extreme.py`, 151–200): composite CSV/SQLite/XLSX/JSONL
+pipelines, archives (zip/gzip/tar), project-wide refactors, algorithms
+with pytest (quicksort, LRU cache, linked list, tree inorder, priority
+queue), statistics (rolling average, histogram, z-score, percentiles,
+pivot table), XML/markdown with YAML front-matter, and hard composites —
+three-way joins, hourly log aggregation, dead-function detection. All
+200 tasks pass `verify-gold`.
 
-| Дата | Конфигурация | Параллелизм | Результат | % | Δ к no-profile |
+| Date | Configuration | Concurrency | Result | % | Δ vs no-profile |
 | --- | --- | --- | --- | --- | --- |
-| 2026-05-13 | без профиля | 5 | 134 / 200 | 67.0 % | — |
-| 2026-05-13 | **профиль v3 + `ThinkToolMiddleware`** (зафиксирован) | 5 | **153 / 200** | **76.5 %** | **+19 (+9.5 п. п.)** |
+| 2026-05-13 | no profile | 5 | 134 / 200 | 67.0 % | — |
+| 2026-05-13 | **profile v3 + `ThinkToolMiddleware`** (pinned) | 5 | **153 / 200** | **76.5 %** | **+19 (+9.5 pp)** |
 
-#### Расходящиеся задачи
+#### Diverging tasks
 
-**27 задач прошли только с профилем** (профиль реально помог):
+**27 tasks passed only with the profile** (profile actually helped):
 
 ```
 task_11_count_py             task_113_xlsx_update_cell
@@ -141,19 +178,19 @@ task_186_find_call_sites     task_188_csv_three_way_join
                              task_196_xlsx_to_csv_and_json
 ```
 
-Узнаваемые группы:
-- **xlsx / archive / sqlite** — все три xlsx-задачи 113/196, обе
-  архивные 159/161, sqlite-экспорт 149: профиль явно помогает
-  агенту выбирать `execute` + Python-скрипт вместо ручного
-  чтения файла;
-- **rename / move / двухходовки** (21, 22, 56, 188) и
-  «обработай все строки» (47, 48, 25, 39, 98) — продолжают давать
-  стабильное преимущество, ровно как и на 150-задачном бенче;
-- **сложные алгоритмы и аналитика** (170 LRU, 179 z-score,
-  181/182 CSV-агрегаты) — впервые проявились на этом масштабе,
-  и тут профиль тоже выигрывает.
+Recognisable clusters:
+- **xlsx / archive / sqlite** — all three xlsx tasks (113/196), both
+  archive tasks (159/161), sqlite export (149): the profile nudges the
+  agent into `execute` + Python instead of trying to read the file by
+  hand;
+- **rename / move / two-step ops** (21, 22, 56, 188) and "process every
+  line" (47, 48, 25, 39, 98) — the same kinds of wins we saw on the
+  150-task bench;
+- **harder algorithms and analytics** (170 LRU, 179 z-score, 181/182
+  CSV aggregates) — only surfaced at this scale, and the profile wins
+  here too.
 
-**8 задач прошли только без профиля** (профиль ухудшает):
+**8 tasks passed only without the profile** (profile hurts):
 
 ```
 task_24_add_header_comment      task_146_log_count_5xx
@@ -162,46 +199,44 @@ task_51_count_total_lines       task_190_concat_dedupe_sort
 task_82_add_csv_column          task_191_sqlite_revenue_report
 ```
 
-В этом списке доминируют:
-- задачи, где `think`-тулза подсаживает агента в длинный цикл
-  `read → think → edit → think → ...` и упирается в
-  `GRAPH_RECURSION_LIMIT` или в исключение `model`-узла
-  (`task_24`, `task_146`);
-- агрегаты, где с профилем модель чаще выбирает «прочитать-и-посчитать»
-  и ошибается в одной арифметической детали
-  (`task_51`, `task_178`, `task_190`, `task_191`).
+Dominant patterns:
+- tasks where `think` pulls the agent into a long `read → think → edit →
+  think → ...` loop that hits `GRAPH_RECURSION_LIMIT` or a model-node
+  exception (`task_24`, `task_146`);
+- aggregates where, with the profile, the model prefers "read and count
+  in my head" and then slips on a single arithmetic step (`task_51`,
+  `task_178`, `task_190`, `task_191`).
 
-**39 задач стабильно фейлятся в обеих конфигурациях** — это потолок
-GigaChat-3-Ultra на текущем промпте: в основном это `model`-узловые
-исключения на сложных tool-выходах (XML-парсинг, multi-key JSON,
-markdown frontmatter), часть pytest-задач с замысловатой структурой
-(`task_171_impl_linked_list`, `task_172_impl_tree_inorder`,
-`task_193_impl_memoize`), задачи `find_dead_funcs` / `task_187` и
-часть hard composite.
+**39 tasks fail in both configurations** — the model's ceiling on the
+current prompt: mostly `model`-node exceptions on tricky tool outputs
+(XML parsing, multi-key JSON, markdown front-matter), some pytest tasks
+with intricate structure (`task_171_impl_linked_list`,
+`task_172_impl_tree_inorder`, `task_193_impl_memoize`),
+`task_187_dead_functions`, and a few hard composites.
 
-Чистый эффект профиля: **+27 побед − 8 регрессий = +19**, что
-соответствует росту с 67.0 % до 76.5 %. Это **больше**, чем на 150 задачах
-(+7..+10), и **намного больше**, чем на 100 (+5/+6). Закономерность та
-же: чем сложнее и разнообразнее задачи, тем заметнее преимущество
-профиля.
+Net effect of the profile: **+27 wins − 8 regressions = +19**, which
+matches the 67.0 % → 76.5 % bump. That is **larger** than the +7..+10
+gap on 150 tasks, and **much larger** than the +5/+6 on 100. The trend
+is consistent: as task diversity grows, the profile's advantage grows
+with it.
 
-### Промежуточная сводка (150 задач, итерации профиля)
+### Intermediate summary (150 tasks, profile iterations)
 
-После 100-задачной серии бенчмарк дорасширили ещё на 50 заметно более сложных
-задач (`tasks_hard.py`, 101–150): операции с CSV/Excel/JSON/JSONL/YAML/INI/TOML
-/SQLite, написание и исполнение Python-кода (включая `pytest`), массовый
-поиск по 10+ файлам через `grep`, разбор Apache-логов. Все 150 задач проходят
+After the 100-task wave the bench was extended with 50 harder tasks
+(`tasks_hard.py`, 101–150): CSV / Excel / JSON / JSONL / YAML / INI /
+TOML / SQLite, writing and running Python code (incl. pytest), wide
+`grep` across 10+ files, Apache log parsing. All 150 tasks pass
 `verify-gold`.
 
-| Дата | Конфигурация | Параллелизм | Результат | Δ к no-profile |
+| Date | Configuration | Concurrency | Result | Δ vs no-profile |
 | --- | --- | --- | --- | --- |
-| 2026-05-13 | без профиля (прогон 1) | 5 | 103 / 150 | — |
-| 2026-05-13 | без профиля (прогон 2, повторная проверка) | 5 | 106 / 150 | — |
-| 2026-05-13 | **профиль v3 + `ThinkToolMiddleware`** (зафиксирован) | 5 | **113 / 150** | **+7 / +10** |
+| 2026-05-13 | no profile (run 1) | 5 | 103 / 150 | — |
+| 2026-05-13 | no profile (run 2, sanity check) | 5 | 106 / 150 | — |
+| 2026-05-13 | **profile v3 + `ThinkToolMiddleware`** (pinned) | 5 | **113 / 150** | **+7 / +10** |
 
-#### Расходящиеся задачи
+#### Diverging tasks
 
-22 задачи прошли **только с профилем** (он реально помог):
+22 tasks passed **only with the profile** (it actually helped):
 
 ```
 task_14_sum_numbers          task_119_yaml_bump_version
@@ -217,15 +252,15 @@ task_86_extract_numbers      task_113_xlsx_update_cell
 task_114_jsonl_sum_amount    task_117_json_to_yaml
 ```
 
-Узнаваемые группы: **rename/move/двухходовки** (`task_21`, `task_56`),
-**xlsx целиком** (3 из 3 — `111/112/113`), **YAML/INI/SQLite/JSONL-конверсии**,
-а также задачи на обработку всех строк (`task_34`, `task_42`, `task_140`).
-Это в точности те типы задач, под которые писался промпт v3 (разделы
-`Two-step operations`, `Process EVERY line/file`, чёткие правила про
-формат вывода).
+Recognisable clusters: **rename / move / two-step ops** (`task_21`,
+`task_56`), **xlsx 3-of-3** (111/112/113), **YAML / INI / SQLite /
+JSONL conversions**, and "process every line" tasks (`task_34`,
+`task_42`, `task_140`). These are exactly the cases prompt v3 was
+tuned for (sections `Two-step operations`, `Process EVERY line/file`,
+clear formatting rules).
 
-12 задач, наоборот, прошли **только без профиля** — это регрессии,
-которые профиль вносит:
+12 tasks passed **only without the profile** — regressions the profile
+introduces:
 
 ```
 task_20_move_function   task_101_csv_mean_score
@@ -236,354 +271,375 @@ task_51_count_total_lines  task_144_grep_duplicate_funcs
 task_65_sum_floats      task_148_csv_to_xlsx
 ```
 
-В этом списке доминируют (1) задачи, где `think`-цикл провоцирует
-`GRAPH_RECURSION_LIMIT` или исключение `model`-узла (`task_26`, `task_30`,
-`task_24`); (2) CSV-задачи с большим числом строк (`task_101`,
-`task_102`, `task_106`) — модель с профилем чаще выбирает «прочитать
-файл и посчитать руками» и тут срывается в арифметике, тогда как без
-профиля чаще запускает `python -c '...'` через `execute`. Это направление
-дальнейшей доработки промпта.
+Two themes dominate: (1) tasks where the `think` loop drives
+`GRAPH_RECURSION_LIMIT` or a model-node exception (`task_26`,
+`task_30`, `task_24`); (2) CSV tasks with many rows (`task_101`,
+`task_102`, `task_106`) — with the profile the model more often picks
+"read and count in my head" and slips on the arithmetic, while
+without the profile it more often runs `python -c '...'` via
+`execute`. That's a direction for further prompt work.
 
-25 задач **стабильно фейлятся в обеих конфигурациях** — это потолок
-модели на текущем промпте: рефакторинги вроде `task_20_move_function`,
-строгие форматы dict (`task_55_add_conftest`), часть pytest-задач,
-часть log-задач.
+25 tasks **fail in both configurations** — the model's ceiling on the
+current prompt: refactors like `task_20_move_function`, strict dict
+formats (`task_55_add_conftest`), some pytest tasks, some log
+tasks.
 
-Чистый эффект профиля относительно первого прогона без профиля: **+22 победы
-− 12 регрессий = +10**, итого 113 / 150 vs 103 / 150. Повторный прогон без
-профиля дал 106 / 150 (флейкие ±3 задачи между запусками — обычное дело при
-одиночных прогонах без усреднения), так что устойчивый замер преимущества
-профиля — **+7..+10**. То есть с ростом доли «сложных» задач (xlsx, SQLite,
-multi-file grep, JSON/YAML/INI/TOML) преимущество профиля сохраняется, а не
-размывается — на 100-задачном бенче было +5/+6, на 150-задачном уже **+7..+10**.
+Net profile effect vs the first no-profile run: **+22 wins − 12
+regressions = +10**, i.e. 113 / 150 vs 103 / 150. The second
+no-profile run yielded 106 / 150 (±3 task flakiness between single
+runs is expected without averaging), so the durable read on the
+profile is **+7..+10**. The shape is the same as on the 100-task
+bench (+5/+6); the gap widens with task diversity rather than washing
+out — +5/+6 on 100 became **+7..+10** on 150.
 
-### 100-задачный бенч (история до расширения)
+### 100-task bench (history before the extension)
 
-| Дата | Конфигурация | Параллелизм | Результат | Δ к no-profile |
+| Date | Configuration | Concurrency | Result | Δ vs no-profile |
 | --- | --- | --- | --- | --- |
-| 2026-05-13 | без профиля (прогон 1) | 1 | 83 / 100 | — |
-| 2026-05-13 | без профиля (прогон 2, для повторной проверки) | 5 | 82 / 100 | — |
-| 2026-05-13 | профиль v3 + `ThinkToolMiddleware` | 1 | 88 / 100 | +5 / +6 |
+| 2026-05-13 | no profile (run 1) | 1 | 83 / 100 | — |
+| 2026-05-13 | no profile (run 2, repeatability check) | 5 | 82 / 100 | — |
+| 2026-05-13 | profile v3 + `ThinkToolMiddleware` | 1 | 88 / 100 | +5 / +6 |
 
-Финальная конфигурация репозитория — **профиль v3 с `think`-тулзой**:
-- `deepagents_gigachat/prompts.py` — короткий промпт v3 с разделами Two-step
-  operations / Counting / Files / Search / Shell;
-- `deepagents_gigachat/harness_profile.py` — переработанные описания
-  `write_file` / `edit_file` / `grep` / `execute`,
+The pinned configuration is **profile v3 with the `think` tool**:
+- `deepagents_gigachat/prompts.py` — short v3 prompt with sections
+  Two-step operations / Counting / Files / Search / Shell;
+- `deepagents_gigachat/harness_profile.py` — reworked descriptions for
+  `write_file` / `edit_file` / `grep` / `execute`, with
   `extra_middleware=(ThinkToolMiddleware(),)`.
 
-### Промежуточная сводка (60 задач, итерации профиля)
+### Intermediate summary (60 tasks, profile iterations)
 
-| Дата | Конфигурация | Результат |
+| Date | Configuration | Result |
 | --- | --- | --- |
-| 2026-05-13 | без профиля | 46 / 60 |
-| 2026-05-13 | профиль v1 (старая версия, `think` выключен) | 42 / 60 |
-| 2026-05-13 | профиль v2 (новый промпт + новые описания тулзов, `think` выключен) | 49 / 60 |
-| 2026-05-13 | профиль v3 (явные двухходовки, «обработай всё», запрет на повторное чтение), `think` выключен | 51 / 60 |
-| 2026-05-13 | **профиль v3 + `ThinkToolMiddleware`** | **52 / 60** |
+| 2026-05-13 | no profile | 46 / 60 |
+| 2026-05-13 | profile v1 (old version, `think` disabled) | 42 / 60 |
+| 2026-05-13 | profile v2 (new prompt + new tool descriptions, `think` disabled) | 49 / 60 |
+| 2026-05-13 | profile v3 (explicit two-step ops, "process everything", no re-read), `think` disabled | 51 / 60 |
+| 2026-05-13 | **profile v3 + `ThinkToolMiddleware`** | **52 / 60** |
 
-Подробности по 60-задачным прогонам — в разделе «60 задач: итерации профиля»
-ниже. Историческая сводка по предыдущему 30-задачному бенчмарку (которую
-делали 12 мая) лежит сразу после неё.
+Details on the 60-task runs are in the "60 tasks: profile iterations"
+section below. The 30-task historical summary (run on May 12) sits right
+after it.
 
-### Краткая историческая сводка (30 задач)
+### Short historical summary (30 tasks)
 
-| Дата | Конфигурация | Результат |
+| Date | Configuration | Result |
 | --- | --- | --- |
-| 2026-05-12 | `deepagents` + `langchain-gigachat` + GigaChat harness profile (промпт + `think` + tool overrides) | **22 / 30** |
-| 2026-05-12 | то же, но `ThinkToolMiddleware` отключён (только промпт + tool overrides) | **23 / 30** |
-| 2026-05-12 | `deepagents` + `langchain-gigachat` без харнесс-профиля | **26 / 30** |
+| 2026-05-12 | `deepagents` + `langchain-gigachat` + GigaChat harness profile (prompt + `think` + tool overrides) | **22 / 30** |
+| 2026-05-12 | same, but `ThinkToolMiddleware` disabled (prompt + tool overrides only) | **23 / 30** |
+| 2026-05-12 | `deepagents` + `langchain-gigachat` without the harness profile | **26 / 30** |
 
-Все три прогона — одна и та же модель `GigaChat-3-Ultra` через
-`gigachat.ift.sberdevices.ru/v1`, одна и та же команда
-`uv run python -m harness_bench run` с дефолтным `--recursion-limit 80`, без
-ретраев.
+All three runs used the same `GigaChat-3-Ultra` model via
+`gigachat.ift.sberdevices.ru/v1`, the same `uv run python -m
+harness_bench run` command with the default `--recursion-limit 80`, no
+retries.
 
-На этой выборке из 30 задач профиль `deepagents-gigachat` пользы не приносит:
-без профиля результат стабильно выше. Отключение `think`-тулзы внутри
-профиля даёт +1 (и убирает одну флейкую задачу), но регрессию относительно
-«голого» `deepagents` не убирает. То есть проблема не в `think`, а в самом
-кастомном промпте и/или переопределениях описаний инструментов
-(`write_file`/`edit_file`/`grep`/`execute`). Это по одному прогону на
-конфигурацию, между ними есть флейкость — для строгих выводов нужно гонять
-несколько раз и усреднять, — но направление однозначное. Подробности по
-каждому прогону ниже.
+On this 30-task sample the `deepagents-gigachat` profile was a net loss:
+without it the score was reliably higher. Disabling `think` inside the
+profile only gained +1 (and removed one flaky task) — not enough to
+offset the regression against bare `deepagents`. So the problem wasn't
+`think`, it was the custom prompt and/or the
+`write_file`/`edit_file`/`grep`/`execute` description overrides. Each
+configuration was a single run with some flakiness — strict conclusions
+need averaging across multiple runs — but the direction was
+unambiguous. Per-run details follow.
 
-### 2026-05-12 — с профилем `deepagents-gigachat` (`22 / 30`)
+### 2026-05-12 — with the `deepagents-gigachat` profile (`22 / 30`)
 
-Окружение: `deepagents 0.5.7`, `langchain-gigachat 0.5.1`,
-`deepagents-gigachat 0.0.1a1` зарегистрирован как entry point
-`deepagents.harness_profiles` и подцепляется автоматически. Полный wall-time —
-около 5.5 минут.
+Environment: `deepagents 0.5.7`, `langchain-gigachat 0.5.1`,
+`deepagents-gigachat 0.0.1a2` registered as the
+`deepagents.harness_profiles` entry point and picked up automatically.
+Total wall-time ≈ 5.5 minutes.
 
-Упавшие задачи:
+Failed tasks:
 
-| Задача | Причина |
+| Task | Reason |
 | --- | --- |
-| `task_11_count_py` | флейк — упал в основном прогоне с исключением, на повторном запуске `PASS` за 4.4с |
-| `task_13_count_csv_lines` | `GRAPH_RECURSION_LIMIT` — агент застрял в цикле инструментов |
-| `task_20_move_function` | `a.py still contains forbidden: ['def helper', "'help'"]` — функция скопирована в `b.py`, но не удалена из `a.py` |
-| `task_21_rename_file` | `oldname.txt still exists` — содержимое перенесено в `newname.txt`, исходный файл оставлен |
-| `task_24_add_header_comment` | исключение во внутреннем `model`-узле langgraph |
-| `task_25_sort_lines` | `sorted.txt lines differ` — состав или порядок строк не совпал с ожидаемым |
-| `task_26_add_json_key` | флейк — упал в основном прогоне с исключением, на повторном запуске `PASS` за 30.8с |
-| `task_30_add_todo` | `GRAPH_RECURSION_LIMIT` — снова цикл инструментов |
+| `task_11_count_py` | flake — failed in the main run with an exception, on retry `PASS` in 4.4 s |
+| `task_13_count_csv_lines` | `GRAPH_RECURSION_LIMIT` — the agent got stuck in a tool loop |
+| `task_20_move_function` | `a.py still contains forbidden: ['def helper', "'help'"]` — function copied to `b.py` but not removed from `a.py` |
+| `task_21_rename_file` | `oldname.txt still exists` — content moved to `newname.txt`, original file left behind |
+| `task_24_add_header_comment` | exception inside langgraph's `model` node |
+| `task_25_sort_lines` | `sorted.txt lines differ` — line set or order didn't match expected |
+| `task_26_add_json_key` | flake — failed in the main run, on retry `PASS` in 30.8 s |
+| `task_30_add_todo` | `GRAPH_RECURSION_LIMIT` — another tool loop |
 
-По характеру восемь фейлов делятся так:
+By type the eight failures break down as:
 
-- **Содержательные промахи модели** (агент дошёл до конца, но сделал не то):
-  `task_20`, `task_21`, `task_25` — все три про «удалить старое после копирования
-  нового» или про сортировку.
-- **`GRAPH_RECURSION_LIMIT` (80 шагов)**: `task_13`, `task_30`.
-- **Исключение во время вызова модели**: `task_24`.
-- **Флейки** (со второго раза прошли без правок): `task_11`, `task_26`.
+- **Real model misses** (the agent finished but did the wrong thing):
+  `task_20`, `task_21`, `task_25` — all three about "delete the old
+  thing after creating the new one" or about sorting.
+- **`GRAPH_RECURSION_LIMIT` (80 steps)**: `task_13`, `task_30`.
+- **Exception during a model call**: `task_24`.
+- **Flakes** (passed on retry without code changes): `task_11`,
+  `task_26`.
 
-Если считать только стабильные фейлы (без флейков), стабильно зелёные 24 из 30.
+If you only count stable failures (drop the flakes), 24 / 30 are
+reliably green.
 
-### 2026-05-12 — профиль активен, `think` отключён (`23 / 30`)
+### 2026-05-12 — profile active, `think` disabled (`23 / 30`)
 
-В этом прогоне entry point и `register_harness()` оставлены на месте, но в
-`deepagents_gigachat/harness_profile.py` параметр `extra_middleware`
-переключён с `(ThinkToolMiddleware(),)` на `()`. Проверено, что для свежего
-`GigaChat`-инстанса `_harness_profile_for_model` возвращает профиль с
-кастомным `base_system_prompt` и переопределениями для
-`write_file`/`edit_file`/`grep`/`execute`, а `extra_middleware` пуст.
+Entry point and `register_harness()` are kept in place, but
+`extra_middleware` in `deepagents_gigachat/harness_profile.py` is
+switched from `(ThinkToolMiddleware(),)` to `()`. Verified that for a
+fresh `GigaChat` instance `_harness_profile_for_model` returns a
+profile with the custom `base_system_prompt` and the
+`write_file`/`edit_file`/`grep`/`execute` overrides, with
+`extra_middleware` empty.
 
-Упавшие задачи:
+Failed tasks:
 
-| Задача | Причина |
+| Task | Reason |
 | --- | --- |
-| `task_13_count_csv_lines` | `GRAPH_RECURSION_LIMIT` (114 с) |
-| `task_20_move_function` | `a.py still contains forbidden: ['def helper', "'help'"]` — снова «полусделано» |
+| `task_13_count_csv_lines` | `GRAPH_RECURSION_LIMIT` (114 s) |
+| `task_20_move_function` | `a.py still contains forbidden: ['def helper', "'help'"]` — "half done" again |
 | `task_21_rename_file` | `oldname.txt still exists` |
-| `task_24_add_header_comment` | исключение во внутреннем `model`-узле langgraph |
+| `task_24_add_header_comment` | exception inside langgraph's `model` node |
 | `task_25_sort_lines` | `sorted.txt lines differ` |
-| `task_26_add_json_key` | `GRAPH_RECURSION_LIMIT` (54 с) |
-| `task_30_add_todo` | `GRAPH_RECURSION_LIMIT` (93 с) |
+| `task_26_add_json_key` | `GRAPH_RECURSION_LIMIT` (54 s) |
+| `task_30_add_todo` | `GRAPH_RECURSION_LIMIT` (93 s) |
 
-По сравнению с конфигурацией «с профилем + `think`» (`22 / 30`):
+Compared to "with the profile + `think`" (`22 / 30`):
 
-- ушла флейкая задача `task_11_count_py` (без `think` прошла за 27.8 с — долго, но прошла);
-- `task_26_add_json_key` теперь стабильно падает в `GRAPH_RECURSION_LIMIT` вместо «флейка/исключения»;
-- остальные шесть стабильно-фейлящихся задач совпадают один-в-один (`task_13`, `task_20`, `task_21`, `task_24`, `task_25`, `task_30`).
+- the flaky `task_11_count_py` dropped out (without `think` it passed
+  in 27.8 s — slow, but it passed);
+- `task_26_add_json_key` now reliably fails with `GRAPH_RECURSION_LIMIT`
+  instead of being a flake/exception;
+- the other six stable failures match one-to-one (`task_13`, `task_20`,
+  `task_21`, `task_24`, `task_25`, `task_30`).
 
-Главный вывод: `think`-тулза не виновата в регрессии. Прямые сравнения
-«профиль с `think`» vs «профиль без `think`» дают почти идентичный набор
-фейлов; и оба заметно хуже, чем «без профиля вообще». То есть деградацию даёт
-наш кастомный промпт и/или переопределения описаний файловых инструментов.
+The takeaway: `think` was not the culprit. "Profile with `think`" and
+"profile without `think`" produce nearly identical failure sets, and
+both are visibly worse than "no profile at all". The regression came
+from our custom prompt and/or the file-tool description overrides.
 
-### 2026-05-12 — без профиля (`26 / 30`)
+### 2026-05-12 — no profile (`26 / 30`)
 
-Для этого прогона entry point `deepagents.harness_profiles` в
-`pyproject.toml` был отключён (закомментирован) и пакет переустановлен, чтобы
-`.dist-info` не подсасывал профиль автоматически. Вызов `register_harness()`
-из `runner.py` тоже был убран. Проверено, что для свежего `GigaChat`-инстанса
-`_harness_profile_for_model(model, None)` возвращает пустой `HarnessProfile()`:
-ни кастомного `base_system_prompt`, ни переопределений описаний инструментов,
-ни `think`-мидлвари. То есть это «чистый» `deepagents` с дефолтным
-`BASE_AGENT_PROMPT` и стоковыми описаниями файловых тулзов. После прогона
-профиль и entry point восстановлены — текущее «зафиксированное» состояние
-репозитория соответствует третьему прогону (профиль активен, `think` выключен).
+For this run the `deepagents.harness_profiles` entry point in
+`pyproject.toml` was disabled (commented out) and the package was
+reinstalled so the `.dist-info` no longer pulled in the profile
+automatically. The `register_harness()` call in `runner.py` was also
+removed. Verified that for a fresh `GigaChat` instance
+`_harness_profile_for_model(model, None)` returned an empty
+`HarnessProfile()`: no custom `base_system_prompt`, no tool description
+overrides, no `think` middleware. That is "plain" `deepagents` with the
+default `BASE_AGENT_PROMPT` and stock file-tool descriptions. After the
+run, the profile and entry point were restored — the current pinned
+state of the repository matches the third run (profile active, `think`
+disabled).
 
-Упавшие задачи:
+Failed tasks:
 
-| Задача | Причина |
+| Task | Reason |
 | --- | --- |
-| `task_14_sum_numbers` | исключение во внутреннем `model`-узле langgraph |
-| `task_21_rename_file` | `oldname.txt still exists` — снова не удалил исходный файл после копирования |
+| `task_14_sum_numbers` | exception inside langgraph's `model` node |
+| `task_21_rename_file` | `oldname.txt still exists` — again didn't delete the source after copying |
 | `task_25_sort_lines` | `sorted.txt lines differ` |
-| `task_30_add_todo` | `GRAPH_RECURSION_LIMIT` (80 шагов) |
+| `task_30_add_todo` | `GRAPH_RECURSION_LIMIT` (80 steps) |
 
-### Что изменилось без профиля
+### What changed without the profile
 
-- **Перестали падать** (4 задачи): `task_11_count_py`, `task_13_count_csv_lines`,
-  `task_20_move_function`, `task_24_add_header_comment`, `task_26_add_json_key`
-  — пять штук, минус один новый фейл = чистый +4. В частности, `task_20`
-  («перенеси функцию из a.py в b.py») с профилем стабильно остаётся
-  «наполовину сделанным», а без профиля проходит полностью.
-- **Стали падать заново или впервые** (1 задача): `task_14_sum_numbers` — упал
-  на стороне `model`-узла langgraph; с профилем эта задача проходила.
-- **Стабильно фейлятся в обеих конфигурациях**: `task_21_rename_file`,
-  `task_25_sort_lines`, `task_30_add_todo`. То есть это «реальные» проблемы
-  задач/модели, профиль ни в одну сторону не двигает их.
+- **Stopped failing** (4 tasks): `task_11_count_py`,
+  `task_13_count_csv_lines`, `task_20_move_function`,
+  `task_24_add_header_comment`, `task_26_add_json_key` — five wins minus
+  one new failure = net +4. In particular `task_20` ("move the function
+  from a.py to b.py") with the profile reliably ends up "half done",
+  while without it it goes through cleanly.
+- **Started failing again or for the first time** (1 task):
+  `task_14_sum_numbers` — failed inside langgraph's model node; passed
+  with the profile.
+- **Fail in both configurations**: `task_21_rename_file`,
+  `task_25_sort_lines`, `task_30_add_todo`. Those are "real" model/task
+  issues — the profile neither helps nor hurts.
 
-Эта серия из трёх прогонов на 30 задачах закончилась выводом «профиль
-хуже, чем его отсутствие». После неё:
-- бенчмарк был расширен с 30 до **60 задач** (`tasks_extra.py`, задачи 31–60);
-- проведена серия итераций профиля v1 → v2 → v3; см. раздел ниже.
+That three-run 30-task series ended on the conclusion "the profile is
+worse than its absence". After it:
+- the bench was expanded from 30 to **60 tasks** (`tasks_extra.py`,
+  tasks 31–60);
+- a v1 → v2 → v3 profile iteration series was run; see below.
 
-### 60 задач: итерации профиля
+### 60 tasks: profile iterations
 
-Цель серии — добиться, чтобы профиль приносил измеримую пользу относительно
-конфигурации «без профиля». Модель, выборка задач и команда запуска во всех
-прогонах одни и те же; единственное, что меняется между итерациями, — содержимое
-`deepagents_gigachat/prompts.py` (системный промпт) и
-`deepagents_gigachat/harness_profile.py` (описания инструментов).
+Goal of the series — get the profile to produce a measurable win over
+the no-profile configuration. The model, the task set, and the run
+command are identical across runs; the only thing that changes between
+iterations is the content of `deepagents_gigachat/prompts.py` (system
+prompt) and `deepagents_gigachat/harness_profile.py` (tool
+descriptions).
 
-#### 2026-05-13 — baseline без профиля (`46 / 60`)
+#### 2026-05-13 — no-profile baseline (`46 / 60`)
 
-Entry point в `pyproject.toml` закомментирован, `register_harness()` из
-`runner.py` убран. Это «чистый» `deepagents`.
+The entry point in `pyproject.toml` is commented out and
+`register_harness()` is removed from `runner.py`. Plain `deepagents`.
 
-Упавшие задачи: `task_13_count_csv_lines`, `task_14_sum_numbers`,
+Failed tasks: `task_13_count_csv_lines`, `task_14_sum_numbers`,
 `task_20_move_function`, `task_21_rename_file`, `task_24_add_header_comment`,
 `task_25_sort_lines`, `task_32_count_words`, `task_33_find_max`,
 `task_34_filter_errors`, `task_38_trim_trailing_ws`, `task_39_reverse_lines`,
 `task_41_count_todos`, `task_55_add_conftest`, `task_56_move_to_subdir`.
 
-Основные причины: исключения в `model`-узле langgraph при ветвистых
-tool-вызовах, `GRAPH_RECURSION_LIMIT`, и «двухходовки» (переименование/
-конвертация, где забыли удалить исходник).
+Main causes: exceptions in langgraph's `model` node on branchy
+tool-call payloads, `GRAPH_RECURSION_LIMIT`, and "two-step" issues
+(renames / conversions where the source file was kept).
 
-#### 2026-05-13 — профиль v1 (`42 / 60`)
+#### 2026-05-13 — profile v1 (`42 / 60`)
 
-Старый промпт и старые описания инструментов, `think` выключен. Профиль
-проиграл 4 задачи относительно «без профиля». Анализ диффа фейлов
-показал, что профиль *вредит* там, где он провоцирует лишние шаги:
-после-изменения `read_file` для «верификации», цикл `read → edit → read → edit`,
-повторные `grep` на одной и той же подстроке. Эти циклы съедают
-recursion limit и иногда натыкают модель на форматные исключения.
+Old prompt and old tool descriptions, `think` disabled. The profile
+lost 4 tasks vs no-profile. Diff analysis showed that the profile
+*hurts* wherever it triggers extra steps: post-change `read_file` for
+"verification", `read → edit → read → edit` cycles, repeated `grep`
+on the same substring. Those cycles burn the recursion budget and
+occasionally trip the model on format exceptions.
 
-#### 2026-05-13 — профиль v2 (`49 / 60`) — **+3 к baseline**
+#### 2026-05-13 — profile v2 (`49 / 60`) — **+3 over baseline**
 
-Промпт переписан от первого до последнего абзаца:
+Prompt rewritten end-to-end:
 
-- удалён абзац «после изменений перечитай файлы для верификации» (тот, что
-  провоцировал циклы);
-- добавлено правило «один файл — один `read_file`, потом одна правка»;
-- двухходовка («перенеси / переименуй / конвертируй») вынесена в отдельный
-  пункт «do both halves»;
-- описания инструментов переписаны в более прямой стиль с одним конкретным
-  примером для каждого случая.
+- removed the "after changes, re-read files to verify" paragraph (the
+  one that triggered cycles);
+- added the rule "one file, one read, then one edit";
+- moved two-step ops ("move / rename / convert") into a dedicated
+  "do both halves" section;
+- tool descriptions rewritten in a more direct style with one concrete
+  example each.
 
-#### 2026-05-13 — профиль v3 (`51 / 60`) — **+5 к baseline**
+#### 2026-05-13 — profile v3 (`51 / 60`) — **+5 over baseline**
 
-Поверх v2 добавлены:
+On top of v2:
 
-- блок «Two-step operations» с конкретными подсказками («после `mv` — оба
-  шага», «после `replace X with Y` в файле ZERO occurrences X»);
-- акцент «process EVERY line/file/item», направленный на задачи
+- a `Two-step operations` block with concrete hints ("after `mv` — both
+  halves are done in one call", "after `replace X with Y` there must be
+  ZERO occurrences of X");
+- a "process EVERY line / file / item" rule targeting tasks like
   `task_34_filter_errors`, `task_38_trim_trailing_ws`,
   `task_48_append_eof_each`;
-- секция «Counting/arithmetic» с правилом «compute once, write once,
-  do not double-check the same number twice».
+- a `Counting / arithmetic` section with the rule "compute once, write
+  once, do not double-check the same number twice".
 
-Оставшиеся 9 фейлов v3:
+Remaining 9 v3 failures:
 
-| Задача | Причина |
+| Task | Reason |
 | --- | --- |
-| `task_13_count_csv_lines` | исключение в `model`-узле |
-| `task_20_move_function` | снова «копирование без удаления» в `a.py` |
-| `task_24_add_header_comment` | исключение в `model`-узле |
+| `task_13_count_csv_lines` | `model`-node exception |
+| `task_20_move_function` | "copy without delete" in `a.py` again |
+| `task_24_add_header_comment` | `model`-node exception |
 | `task_30_add_todo` | `GRAPH_RECURSION_LIMIT` |
-| `task_32_count_words` | исключение в `model`-узле |
-| `task_38_trim_trailing_ws` | пропускает trailing whitespace в нескольких строках |
-| `task_41_count_todos` | арифметическая ошибка |
-| `task_51_count_total_lines` | арифметическая ошибка |
-| `task_55_add_conftest` | пишет одинарные кавычки вместо двойных в литерале словаря |
+| `task_32_count_words` | `model`-node exception |
+| `task_38_trim_trailing_ws` | misses trailing whitespace on several lines |
+| `task_41_count_todos` | arithmetic mistake |
+| `task_51_count_total_lines` | arithmetic mistake |
+| `task_55_add_conftest` | writes single quotes instead of double quotes inside a dict literal |
 
-Из них четыре (`task_13`, `task_24`, `task_32`, `task_30`) — инфраструктурные:
-исключение со стороны langgraph при сериализации tool-calls или
-recursion-limit; их вряд ли можно полностью убрать промптом. Остальные пять —
-содержательные промахи модели; их можно подтянуть ещё одной итерацией
-профиля или поднятием `--recursion-limit`. Дальнейшие итерации в этом коммите
-не делал — цель «профиль должен помогать» достигнута, и хочется зафиксировать
-устойчивый прирост, а не дрейфовать промпт под флейкие задачи.
+Four of those (`task_13`, `task_24`, `task_32`, `task_30`) are
+infrastructural: langgraph exceptions on serialised tool calls or
+recursion-limit hits; hard to fix via the prompt. The other five are
+model misses that could be nudged via another prompt iteration or a
+higher `--recursion-limit`. No further iterations were run in this
+commit — the goal "the profile should help" was reached, and we
+preferred to lock in the steady gain instead of drifting the prompt
+to chase flaky tasks.
 
-### 100 задач: финальная проверка
+### 100 tasks: final A/B
 
-После 60-задачной серии бенчмарк был дорасширен до 100 задач
-(`tasks_more.py`, задачи 61–100). Новые задачи покрывают .env-файлы, вложенные
-JSON-правки, dataclass-скелеты, CSV-операции, лёгкие regex-извлечения,
-INI/TOML/YAML-стабы, разбиение CSV на по-строчные файлы и т. п. Все 100 задач
-проходят `verify-gold`.
+After the 60-task series the bench was extended to 100 tasks
+(`tasks_more.py`, tasks 61–100). The new tasks cover `.env` edits,
+nested JSON, dataclass scaffolds, CSV operations, light regex
+extraction, INI/TOML/YAML stubs, splitting CSV into per-row files.
+All 100 pass `verify-gold`.
 
-На этой выборке профиль (v3 + `think`) был сопоставлен с конфигурацией
-«без профиля» в один прогон каждой:
+The profile (v3 + `think`) was matched against the no-profile
+configuration in a single run each:
 
-| Дата | Конфигурация | Результат |
+| Date | Configuration | Result |
 | --- | --- | --- |
-| 2026-05-13 | без профиля | 83 / 100 |
-| 2026-05-13 | **профиль v3 + `think`** | **88 / 100** |
+| 2026-05-13 | no profile | 83 / 100 |
+| 2026-05-13 | **profile v3 + `think`** | **88 / 100** |
 
-#### Разница по задачам
+#### Per-task diff
 
-**Прошли только с профилем** (т.е. профиль реально помогает) — 8 шт:
+**Passed only with the profile** (the profile actually helps) — 8 tasks:
 `task_14_sum_numbers`, `task_21_rename_file`, `task_25_sort_lines`,
 `task_39_reverse_lines`, `task_56_move_to_subdir`, `task_75_squash_blank`,
-`task_81_swap_lines`, `task_86_extract_numbers`. В этом списке как раз
-задачи про «двухходовки» (rename / move), «обработай все строки» и
-точечную работу со списком строк — то самое, что подсвечивал раздел
-`Two-step operations` и `process EVERY line` в промпте v3.
+`task_81_swap_lines`, `task_86_extract_numbers`. That's exactly the
+two-step (rename / move), "process every line" and list-of-lines tasks
+that prompt v3's `Two-step operations` and `process EVERY line`
+sections were aimed at.
 
-**Прошли только без профиля** (т.е. профиль здесь, наоборот, помешал) — 3 шт:
-`task_13_count_csv_lines`, `task_26_add_json_key`, `task_30_add_todo`. Все
-три — задачи, где профиль с `think`-тулзой подцепил длинную серию tool-calls
-и упёрся в `GRAPH_RECURSION_LIMIT` (`task_26` и `task_30`) или в исключение
-`model`-узла (`task_13`). Это та цена, которую мы платим за `think`.
+**Passed only without the profile** (the profile gets in the way) — 3
+tasks: `task_13_count_csv_lines`, `task_26_add_json_key`,
+`task_30_add_todo`. All three are cases where the profile + `think`
+combo picked up a long chain of tool calls and hit
+`GRAPH_RECURSION_LIMIT` (`task_26` and `task_30`) or a `model`-node
+exception (`task_13`). That's the price of `think`.
 
-**Стабильно фейлятся в обеих конфигурациях** — 9 шт:
-`task_20_move_function`, `task_32_count_words`, `task_41_count_todos`,
-`task_55_add_conftest`, `task_65_sum_floats`, `task_71_count_assert`,
-`task_92_count_chars` плюс по конкретике расхождения (точные форматы
-кавычек/арифметики). Эти задачи показывают предел модели на текущем
-промпте: рефакторинг с удалением старого имени, точные суммы/счётчики,
-строгий формат словаря.
+**Fail in both configurations** — 9 tasks: `task_20_move_function`,
+`task_32_count_words`, `task_41_count_todos`, `task_55_add_conftest`,
+`task_65_sum_floats`, `task_71_count_assert`, `task_92_count_chars` plus
+a few format-mismatch details. These show the model's ceiling on the
+current prompt: refactoring with renames, exact sums/counts, strict
+dict formatting.
 
-Чистая выгода профиля = +8 побед − 3 регрессии = **+5**. То есть профиль
-устойчиво полезен, и это уже не один прогон на 30 задач, a 100 задач разной
-природы.
+Net profile gain = +8 wins − 3 regressions = **+5**. The profile is
+reliably useful — and this is no longer a single 30-task slice, it's
+100 tasks of various shapes.
 
-### Повторный no-profile с параллелизмом 5
+### Repeated no-profile run with concurrency 5
 
-После первого 100-задачного прогона ранер научили параллелить задачи через
-`ThreadPoolExecutor`: каждая задача и так живёт в собственной
-`TemporaryDirectory`, общего состояния между ними нет, так что
-threading-параллелизм для I/O-bound LLM-вызовов даёт ~3–4× ускорение по
-wall-time. Флаг — `--concurrency N` (по умолчанию 1).
+After the first 100-task run the runner learned to parallelise tasks
+through `ThreadPoolExecutor`: each task already lives in its own
+`TemporaryDirectory`, there's no shared state, so threading
+parallelism for I/O-bound LLM calls gives roughly a 3–4× speedup in
+wall-time. The flag is `--concurrency N` (default 1).
 
-Чтобы оценить шум между запусками, мы повторили no-profile конфигурацию
-(плагин выключен — закомментирован entry point, `register_harness()` не
-вызывается) на тех же 100 задачах, но уже с параллелизмом 5:
+To gauge run-to-run noise, the no-profile configuration (plugin
+disabled — entry point commented out, `register_harness()` not called)
+was repeated on the same 100 tasks, this time with concurrency 5:
 
-| Дата | Конфигурация | Параллелизм | Результат |
+| Date | Configuration | Concurrency | Result |
 | --- | --- | --- | --- |
-| 2026-05-13 | без профиля (первый прогон) | 1 | 83 / 100 |
-| 2026-05-13 | без профиля (повторный прогон) | 5 | 82 / 100 |
-| 2026-05-13 | **профиль v3 + `think`** | 1 | **88 / 100** |
+| 2026-05-13 | no profile (run 1) | 1 | 83 / 100 |
+| 2026-05-13 | no profile (run 2) | 5 | 82 / 100 |
+| 2026-05-13 | **profile v3 + `think`** | 1 | **88 / 100** |
 
-Между двумя no-profile прогонами разница — одна задача (флейк); средний
-no-profile ≈ 82–83 из 100. Профиль выигрывает у каждого из них на **+5 / +6**
-задач. То есть преимущество не объясняется случайностью прогона.
+One task difference between the two no-profile runs (flake); the
+average no-profile is ≈ 82–83 / 100. The profile beats each of them by
+**+5 / +6** tasks — i.e. the advantage is not run-to-run randomness.
 
-Параллельный no-profile прогон отработал примерно за 3 минуты вместо
-~15 минут последовательного. На прогоны бенча это влияет только по скорости
-— задачи изолированы (свой workspace), и threading не меняет результаты.
+The parallel no-profile run finished in about 3 minutes instead of
+~15 minutes serially. Parallelism only affects wall-time — tasks are
+isolated (their own workspace) and threading doesn't change outcomes.
 
-### Текущее зафиксированное состояние
+### Current pinned state
 
-Финальный профиль v3 + `think` — это «продакшен»-конфигурация репозитория:
-- `pyproject.toml` объявляет entry point `deepagents.harness_profiles → gigachat`;
-- `runner.py:build_agent` вызывает `register_harness()` явно (чтобы зависимость
-  была видна в коде);
-- `deepagents_gigachat/prompts.py` — короткий новый промпт v3 с разделами
+The final profile v3 + `think` is the "production" configuration for the
+repository:
+- `pyproject.toml` declares the `deepagents.harness_profiles → gigachat`
+  entry point;
+- `runner.py:build_agent` calls `register_harness()` explicitly (so the
+  dependency is visible in code);
+- `deepagents_gigachat/prompts.py` — short v3 prompt with sections
   Two-step operations / Counting / Files / Search / Shell;
-- `deepagents_gigachat/harness_profile.py` — переработанные описания
-  `write_file` / `edit_file` / `grep` / `execute`, `extra_middleware`
-  включает `ThinkToolMiddleware`.
+- `deepagents_gigachat/harness_profile.py` — reworked descriptions for
+  `write_file` / `edit_file` / `grep` / `execute`, with
+  `extra_middleware` set to `(ThinkToolMiddleware(),)`.
 
-Чтобы сравнить с конфигурацией «без профиля»: закомментируйте блок
-`[project.entry-points."deepagents.harness_profiles"]` в `pyproject.toml`,
-переустановите пакет (`uv pip install -e .`) и уберите вызов
-`register_harness()` из `runner.py:build_agent`. Чтобы запустить профиль
-без `think`: поменяйте `extra_middleware=(ThinkToolMiddleware(),)` обратно
-на `extra_middleware=()`.
+To compare against the no-profile configuration: comment out the
+`[project.entry-points."deepagents.harness_profiles"]` block in
+`pyproject.toml`, reinstall the package (`uv pip install -e .`), and
+remove the `register_harness()` call in `runner.py:build_agent`. To run
+the profile without `think`: change
+`extra_middleware=(ThinkToolMiddleware(),)` back to
+`extra_middleware=()`.
 
-## Добавить свою задачу
+## Adding a task
 
-1. В `tasks.py` опишите `Task(...)` — id, prompt, `setup_files`,
-   `gold_files`, `verifier`.
-2. Подключите её в список `ALL_TASKS`.
-3. Прогоните `python -m harness_bench verify-gold --task <new_id>`, чтобы
-   убедиться, что верификатор зелёный на эталонном решении.
-4. Запустите `python -m harness_bench run --task <new_id>` для боевой проверки.
+1. In one of the task modules (`tasks.py`, `tasks_extra.py`,
+   `tasks_more.py`, `tasks_hard.py`, `tasks_extreme.py` — pick the one
+   that fits the wave / difficulty) describe a `Task(...)` — id, prompt,
+   `setup_files`, `gold_files`, `verifier`.
+2. Wire it into the corresponding module's `*_TASKS` list (it'll be
+   pulled into `ALL_TASKS` automatically via `tasks.py`).
+3. Run `python -m harness_bench verify-gold --task <new_id>` to make
+   sure the verifier accepts the gold solution.
+4. Run `python -m harness_bench run --task <new_id>` for an end-to-end
+   sanity check against the live model.

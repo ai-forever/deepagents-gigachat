@@ -1,6 +1,6 @@
 [project]
 name = "deepagents-gigachat"
-version = "0.0.1a1"
+version = "0.0.1a2"
 description = "DeepAgents harness profile for GigaChat"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -20,6 +20,7 @@ classifiers = [
 dependencies = [
     "deepagents>=0.5.4",
     "langchain-gigachat>=0.5.0",
+    "python-dotenv>=1.2.2",
 ]
 
 [project.urls]

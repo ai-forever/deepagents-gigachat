@@ -272,11 +272,12 @@ wheels = [
 
 [[package]]
 name = "deepagents-gigachat"
-version = "0.0.1a1"
+version = "0.0.1a2"
 source = { editable = "." }
 dependencies = [
     { name = "deepagents" },
     { name = "langchain-gigachat" },
+    { name = "python-dotenv" },
 ]
 
 [package.dev-dependencies]
@@ -290,6 +291,7 @@ dev = [
 requires-dist = [
     { name = "deepagents", specifier = ">=0.5.4" },
     { name = "langchain-gigachat", specifier = ">=0.5.0" },
+    { name = "python-dotenv", specifier = ">=1.2.2" },
 ]
 
 [package.metadata.requires-dev]

@@ -21,6 +21,7 @@ import argparse
 import sys
 
 from harness_bench.runner import run_all, summarize, verify_gold
+from harness_bench.runner_cli import DEFAULT_CLI_COMMAND, DEFAULT_TIMEOUT_SECONDS, run_all_cli
 from harness_bench.tasks import ALL_TASKS
 
 
@@ -37,6 +38,18 @@ def _cmd_run(args: argparse.Namespace) -> int:
         task_ids=args.task,
         keep_workspace=args.keep,
         recursion_limit=args.recursion_limit,
+        concurrency=args.concurrency,
+    )
+    summarize(results)
+    return 0 if all(r.passed for r in results) else 1
+
+
+def _cmd_run_cli(args: argparse.Namespace) -> int:
+    results = run_all_cli(
+        task_ids=args.task,
+        cli_command=args.cli_command,
+        timeout=args.timeout,
+        keep_workspace=args.keep,
         concurrency=args.concurrency,
     )
     summarize(results)
@@ -98,6 +111,46 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_gold.add_argument("--task", action="append", help="Task id (repeatable)")
     p_gold.set_defaults(func=_cmd_verify_gold)
+
+    p_cli = sub.add_parser(
+        "run-cli",
+        help=(
+            "Run benchmark via an external CLI agent (default: "
+            f"`{DEFAULT_CLI_COMMAND}`)."
+        ),
+    )
+    p_cli.add_argument(
+        "--task",
+        action="append",
+        help="Task id (repeatable). Run all tasks if omitted.",
+    )
+    p_cli.add_argument(
+        "--keep",
+        action="store_true",
+        help="Keep temp workspaces for inspection",
+    )
+    p_cli.add_argument(
+        "--cli-command",
+        default=DEFAULT_CLI_COMMAND,
+        help=(
+            "Shell command-line prefix invoked per task. The task prompt is "
+            "appended as the final argument. Default: "
+            f"'{DEFAULT_CLI_COMMAND}'."
+        ),
+    )
+    p_cli.add_argument(
+        "--timeout",
+        type=int,
+        default=DEFAULT_TIMEOUT_SECONDS,
+        help=f"Per-task timeout in seconds (default: {DEFAULT_TIMEOUT_SECONDS}).",
+    )
+    p_cli.add_argument(
+        "--concurrency",
+        type=int,
+        default=1,
+        help="Run up to N tasks in parallel (default: 1).",
+    )
+    p_cli.set_defaults(func=_cmd_run_cli)
 
     return parser
 
