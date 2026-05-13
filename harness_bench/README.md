@@ -104,13 +104,82 @@ uv run python -m harness_bench verify-gold
 
 ## Результаты прогонов
 
-### Финальная сводка (100 задач, профиль v3 + `think`)
+### Финальная сводка (150 задач, профиль v3 + `think`)
+
+После 100-задачной серии бенчмарк дорасширили ещё на 50 заметно более сложных
+задач (`tasks_hard.py`, 101–150): операции с CSV/Excel/JSON/JSONL/YAML/INI/TOML
+/SQLite, написание и исполнение Python-кода (включая `pytest`), массовый
+поиск по 10+ файлам через `grep`, разбор Apache-логов. Все 150 задач проходят
+`verify-gold`.
+
+| Дата | Конфигурация | Параллелизм | Результат | Δ к no-profile |
+| --- | --- | --- | --- | --- |
+| 2026-05-13 | без профиля | 5 | 103 / 150 | — |
+| 2026-05-13 | **профиль v3 + `ThinkToolMiddleware`** (зафиксирован) | 5 | **113 / 150** | **+10** |
+
+#### Расходящиеся задачи
+
+22 задачи прошли **только с профилем** (он реально помог):
+
+```
+task_14_sum_numbers          task_119_yaml_bump_version
+task_21_rename_file          task_120_ini_add_section
+task_25_sort_lines           task_133_impl_factorial
+task_33_find_max             task_140_grep_emails
+task_34_filter_errors        task_147_log_filter_404
+task_39_reverse_lines        task_149_sqlite_to_json
+task_42_snake_case           task_108_csv_dedupe
+task_47_dedupe_lines         task_111_xlsx_extract_b2
+task_56_move_to_subdir       task_112_xlsx_sum_column
+task_86_extract_numbers      task_113_xlsx_update_cell
+task_114_jsonl_sum_amount    task_117_json_to_yaml
+```
+
+Узнаваемые группы: **rename/move/двухходовки** (`task_21`, `task_56`),
+**xlsx целиком** (3 из 3 — `111/112/113`), **YAML/INI/SQLite/JSONL-конверсии**,
+а также задачи на обработку всех строк (`task_34`, `task_42`, `task_140`).
+Это в точности те типы задач, под которые писался промпт v3 (разделы
+`Two-step operations`, `Process EVERY line/file`, чёткие правила про
+формат вывода).
+
+12 задач, наоборот, прошли **только без профиля** — это регрессии,
+которые профиль вносит:
+
+```
+task_20_move_function   task_101_csv_mean_score
+task_24_add_header_comment   task_102_csv_filter_adults
+task_26_add_json_key    task_106_csv_group_count
+task_30_add_todo        task_138_grep_yaml_with_key
+task_51_count_total_lines  task_144_grep_duplicate_funcs
+task_65_sum_floats      task_148_csv_to_xlsx
+```
+
+В этом списке доминируют (1) задачи, где `think`-цикл провоцирует
+`GRAPH_RECURSION_LIMIT` или исключение `model`-узла (`task_26`, `task_30`,
+`task_24`); (2) CSV-задачи с большим числом строк (`task_101`,
+`task_102`, `task_106`) — модель с профилем чаще выбирает «прочитать
+файл и посчитать руками» и тут срывается в арифметике, тогда как без
+профиля чаще запускает `python -c '...'` через `execute`. Это направление
+дальнейшей доработки промпта.
+
+25 задач **стабильно фейлятся в обеих конфигурациях** — это потолок
+модели на текущем промпте: рефакторинги вроде `task_20_move_function`,
+строгие форматы dict (`task_55_add_conftest`), часть pytest-задач,
+часть log-задач.
+
+Чистый эффект профиля: **+22 победы − 12 регрессий = +10**, итого
+113/150 vs 103/150. То есть с ростом доли «сложных» задач (xlsx,
+SQLite, multi-file grep, JSON/YAML/INI/TOML) преимущество профиля
+сохраняется, а не размывается — на 100-задачном бенче было +5/+6, на
+150-задачном уже +10.
+
+### 100-задачный бенч (история до расширения)
 
 | Дата | Конфигурация | Параллелизм | Результат | Δ к no-profile |
 | --- | --- | --- | --- | --- |
 | 2026-05-13 | без профиля (прогон 1) | 1 | 83 / 100 | — |
 | 2026-05-13 | без профиля (прогон 2, для повторной проверки) | 5 | 82 / 100 | — |
-| 2026-05-13 | **профиль v3 + `ThinkToolMiddleware` (зафиксирован)** | 1 | **88 / 100** | **+5 / +6** |
+| 2026-05-13 | профиль v3 + `ThinkToolMiddleware` | 1 | 88 / 100 | +5 / +6 |
 
 Финальная конфигурация репозитория — **профиль v3 с `think`-тулзой**:
 - `deepagents_gigachat/prompts.py` — короткий промпт v3 с разделами Two-step
@@ -118,10 +187,6 @@ uv run python -m harness_bench verify-gold
 - `deepagents_gigachat/harness_profile.py` — переработанные описания
   `write_file` / `edit_file` / `grep` / `execute`,
   `extra_middleware=(ThinkToolMiddleware(),)`.
-
-`think` оставлен включённым: на 60-задачном бенче он давал +1 (52/60 vs 51/60);
-на финальном 100-задачном бенче профиль с `think` стабильно опережает
-конфигурацию «без профиля» на **+5** задач.
 
 ### Промежуточная сводка (60 задач, итерации профиля)
 
