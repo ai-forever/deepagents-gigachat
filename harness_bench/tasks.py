@@ -21,6 +21,7 @@ from pathlib import Path
 
 from harness_bench.core import Task, VerifyResult
 from harness_bench.tasks_extra import EXTRA_TASKS
+from harness_bench.tasks_hard import HARD_TASKS
 from harness_bench.tasks_more import MORE_TASKS
 from harness_bench.verifiers import (
     all_of,
@@ -836,6 +837,7 @@ ALL_TASKS: list[Task] = [
     TASK_30,
     *EXTRA_TASKS,
     *MORE_TASKS,
+    *HARD_TASKS,
 ]
 
 _TASK_INDEX: dict[str, Task] = {t.id: t for t in ALL_TASKS}
