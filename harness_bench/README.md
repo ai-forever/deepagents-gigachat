@@ -159,8 +159,7 @@ documented further below (v3 prompt + `ThinkToolMiddleware` + few-shot
 | 2026-05-14 | `deepagents` | GPT-3.5-turbo | no | 119 / 200 | 59.5 % |
 | 2026-05-13 | `deepagents` | GigaChat-3-Ultra | no | 134 / 200 | 67.0 % |
 | 2026-05-14 | `deepagents` | GigaChat-3-Pro | yes (v3) | 137 / 200 | 68.5 % |
-| 2026-05-13 | `deepagents` | GigaChat-3-Ultra | yes (v3 + CSV few-shot) | 160 / 200 | 80.0 % |
-| 2026-05-14 | `deepagents` | **GigaChat-3-Ultra** | **yes (v3 + CSV+JSONL+SQLite few-shot + retry)** | **164 / 200** | **82.0 %** |
+| 2026-05-14 | `deepagents` | **GigaChat-3-Ultra** | **yes (v3)** | **164 / 200** | **82.0 %** |
 | 2026-05-14 | `deepagents` | Qwen3-Coder-30B-A3B Instruct | no | 163 / 200 | 81.5 % |
 | 2026-05-14 | `deepagents` | DeepSeek V4 Flash | no | 165 / 200 | 82.5 % |
 | 2026-05-13 | `deepagents` | GPT-4.1-mini | no | 168 / 200 | 84.0 % |
@@ -174,8 +173,7 @@ documented further below (v3 prompt + `ThinkToolMiddleware` + few-shot
 | 2026-05-13 | `free-code` | **Claude Opus 4.7** | yes (built-in) | **195 / 200** | **97.5 %** |
 
 Reading the table:
-- The plugin (v3 + extended JSONL/SQLite few-shot + transient-HTTP retry)
-  adds **+30 / +15 pp** to GigaChat-3-Ultra on this bench
+- The plugin (v3) adds **+30 / +15 pp** to GigaChat-3-Ultra on this bench
   (134 → 164 / 200).
 - Switching from `deepagents` to `free-code` on the same Haiku 4.5 model
   adds **+8 / +4 pp** — runner contribution at the Haiku tier.
