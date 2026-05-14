@@ -58,7 +58,7 @@ def register_harness() -> None:
                 "write_file / edit_file for changing file content."
             ),
         },
-        # extra_middleware=(ThinkToolMiddleware(),),
+        extra_middleware=(ThinkToolMiddleware(),),
     )
 
     for provider_key in ("gigachat", "giga"):

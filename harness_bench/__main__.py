@@ -22,6 +22,8 @@ import sys
 
 from harness_bench.runner import run_all, summarize, verify_gold
 from harness_bench.runner_cli import DEFAULT_CLI_COMMAND, DEFAULT_TIMEOUT_SECONDS, run_all_cli
+from harness_bench.runner_openrouter import DEFAULT_OPENROUTER_MODEL
+from harness_bench.runner_openrouter import run_all as run_all_openrouter
 from harness_bench.tasks import ALL_TASKS
 
 
@@ -36,6 +38,18 @@ def _cmd_list(_args: argparse.Namespace) -> int:
 def _cmd_run(args: argparse.Namespace) -> int:
     results = run_all(
         task_ids=args.task,
+        keep_workspace=args.keep,
+        recursion_limit=args.recursion_limit,
+        concurrency=args.concurrency,
+    )
+    summarize(results)
+    return 0 if all(r.passed for r in results) else 1
+
+
+def _cmd_run_openrouter(args: argparse.Namespace) -> int:
+    results = run_all_openrouter(
+        task_ids=args.task,
+        model_name=args.model,
         keep_workspace=args.keep,
         recursion_limit=args.recursion_limit,
         concurrency=args.concurrency,
@@ -104,6 +118,24 @@ def build_parser() -> argparse.ArgumentParser:
         "each task still has its own isolated TemporaryDirectory).",
     )
     p_run.set_defaults(func=_cmd_run)
+
+    p_or = sub.add_parser(
+        "run-openrouter",
+        help=(
+            "Run benchmark with a deepagents agent backed by an OpenRouter model "
+            "(no GigaChat-specific harness profile applied)."
+        ),
+    )
+    p_or.add_argument("--task", action="append", help="Task id (repeatable)")
+    p_or.add_argument(
+        "--model",
+        default=DEFAULT_OPENROUTER_MODEL,
+        help=f"OpenRouter model id (default: {DEFAULT_OPENROUTER_MODEL}).",
+    )
+    p_or.add_argument("--keep", action="store_true", help="Keep temp workspaces")
+    p_or.add_argument("--recursion-limit", type=int, default=80)
+    p_or.add_argument("--concurrency", type=int, default=1)
+    p_or.set_defaults(func=_cmd_run_openrouter)
 
     p_gold = sub.add_parser(
         "verify-gold",

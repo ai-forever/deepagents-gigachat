@@ -62,6 +62,7 @@ dev = [
     # because the bench is a dev/eval tool — downstream installers of
     # `deepagents-gigachat` don't need it.
     "openpyxl>=3.1",
+    "langchain-openai>=1.2.1",
 ]
 
 [tool.ruff]

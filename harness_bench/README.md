@@ -141,6 +141,46 @@ uv run python -m harness_bench verify-gold
 
 ## Results
 
+### Cross-runner / cross-model comparison (200 tasks)
+
+To put the GigaChat plugin's gain in context, the same 200-task bench was
+run through alternative runners and models. All `deepagents` rows use
+`uv run python -m harness_bench run` (GigaChat) or `run-openrouter`
+(OpenRouter); the `free-code` row uses the Claude Code CLI v2.1.119.
+The `deepagents` + GigaChat-3-Ultra row is the pinned configuration
+documented further below (v3 prompt + `ThinkToolMiddleware` + few-shot
+`execute python -c` example added 2026-05-13). All runs concurrency 5.
+
+| Date | Runner | Model | Harness adapt | Result | % |
+| --- | --- | --- | --- | --- | --- |
+| 2026-05-14 | `deepagents` | Mistral Small 3.2 24B Instruct | no | 94 / 200 | 47.0 % |
+| 2026-05-13 | `deepagents` | Llama 3.3 70B Instruct | no | 100 / 200 | 50.0 % |
+| 2026-05-14 | `deepagents` | GPT-4.1-nano | no | 115 / 200 | 57.5 % |
+| 2026-05-14 | `deepagents` | GPT-3.5-turbo | no | 119 / 200 | 59.5 % |
+| 2026-05-13 | `deepagents` | GigaChat-3-Ultra | no | 134 / 200 | 67.0 % |
+| 2026-05-13 | `deepagents` | GigaChat-3-Ultra | **yes (v3 + few-shot)** | **160 / 200** | **80.0 %** |
+| 2026-05-14 | `deepagents` | Qwen3-Coder-30B-A3B Instruct | no | 163 / 200 | 81.5 % |
+| 2026-05-13 | `deepagents` | GPT-4.1-mini | no | 168 / 200 | 84.0 % |
+| 2026-05-14 | `deepagents` | GLM-4.6 | no | 174 / 200 | 87.0 % |
+| 2026-05-13 | `deepagents` | Claude Haiku 4.5 | no | 177 / 200 | 88.5 % |
+| 2026-05-13 | `free-code` | Claude Haiku 4.5 | yes (built-in) | 185 / 200 | 92.5 % |
+| 2026-05-13 | `free-code` | **Claude Opus 4.7** | yes (built-in) | **195 / 200** | **97.5 %** |
+
+Reading the table:
+- The plugin adds **+26 / +13 pp** to GigaChat-3-Ultra on this bench.
+- Switching from `deepagents` to `free-code` on the same Haiku 4.5 model
+  adds **+8 / +4 pp** — runner contribution at the Haiku tier.
+- Model contribution (Haiku 4.5 over GigaChat-3-Ultra+plugin) is
+  **+17 / +8.5 pp** through the same `deepagents` runner.
+- The Opus 4.7 + `free-code` run sets the practical ceiling at
+  **97.5 %** — only 5 tasks fail (mostly subtle formatting / "find all"
+  mismatches: 55, 92, 131, 136, 190).
+- Llama 3.3 70B sits well below — a useful low-end anchor for the
+  bench, not a competitive open-weights baseline.
+
+Raw run logs live under `harness_bench/runs/` so per-task diffs can be
+inspected after the fact.
+
 ### Final summary (200 tasks, profile v3 + `think`)
 
 After the 150-task wave the bench was extended with 50 significantly
