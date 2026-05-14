@@ -160,10 +160,15 @@ documented further below (v3 prompt + `ThinkToolMiddleware` + few-shot
 | 2026-05-13 | `deepagents` | GigaChat-3-Ultra | no | 134 / 200 | 67.0 % |
 | 2026-05-13 | `deepagents` | GigaChat-3-Ultra | **yes (v3 + few-shot)** | **160 / 200** | **80.0 %** |
 | 2026-05-14 | `deepagents` | Qwen3-Coder-30B-A3B Instruct | no | 163 / 200 | 81.5 % |
+| 2026-05-14 | `deepagents` | DeepSeek V4 Flash | no | 165 / 200 | 82.5 % |
 | 2026-05-13 | `deepagents` | GPT-4.1-mini | no | 168 / 200 | 84.0 % |
+| 2026-05-14 | `deepagents` | Qwen3.5-397B-A17B | no | 172 / 200 | 86.0 % |
 | 2026-05-14 | `deepagents` | GLM-4.6 | no | 174 / 200 | 87.0 % |
 | 2026-05-13 | `deepagents` | Claude Haiku 4.5 | no | 177 / 200 | 88.5 % |
+| 2026-05-14 | `deepagents` | GLM-5.1 | no | 180 / 200 | 90.0 % |
+| 2026-05-14 | `deepagents` | Claude Sonnet 4.5 | no | 185 / 200 | 92.5 % |
 | 2026-05-13 | `free-code` | Claude Haiku 4.5 | yes (built-in) | 185 / 200 | 92.5 % |
+| 2026-05-14 | `deepagents` | Claude Opus 4.7 | no | 188 / 200 | 94.0 % |
 | 2026-05-13 | `free-code` | **Claude Opus 4.7** | yes (built-in) | **195 / 200** | **97.5 %** |
 
 Reading the table:
