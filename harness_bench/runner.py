@@ -66,6 +66,12 @@ def build_agent(workspace: Path, *, recursion_limit: int = 80) -> Any:
         verify_ssl_certs=False,
         profanity_check=False,
         timeout=600,
+        # Transient backend errors (403/429/5xx from IFT endpoint under
+        # concurrency) are not "the model misbehaving" — they're rate-limit /
+        # connectivity blips. Retry transparently so the agent trace survives.
+        max_retries=5,
+        retry_backoff_factor=1.0,
+        retry_on_status_codes=(403, 429, 500, 502, 503, 504),
     )
     agent = create_deep_agent(model=model, backend=backend)
     return agent.with_config({"recursion_limit": recursion_limit})

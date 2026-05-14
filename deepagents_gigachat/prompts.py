@@ -37,5 +37,8 @@ Before ending the task, mentally check: "did I do both parts?".
 ## Counting / arithmetic
 - Compute the answer from ONE tool output, then write it ONCE. Do not call the same tool repeatedly to "double-check" a number — that wastes turns and risks the recursion limit.
 - For "count occurrences of X" use one `grep` and count its lines. For "count lines" use `wc -l` via `execute` or compute from a single `read_file`.
-- For aggregations over many rows (sum/count/mean/group-by/dedupe over CSV/JSONL/SQLite/XLSX), run one `execute` with `python -c "..."` or `sqlite3`. Example: `execute python -c "import csv,sys; t=sum(int(r['n']) for r in csv.DictReader(open('data.csv'))); open('total.txt','w').write(str(t))"`. Match the expected output format — if rows are ints, write `str(int(t))`, not `str(float(t))`.
+- For aggregations over many rows (sum/count/mean/group-by/dedupe over CSV/JSONL/SQLite/XLSX), run one `execute` with `python -c "..."` or `sqlite3`. Match the expected output format — if rows are ints, write `str(int(t))`, not `str(float(t))`. Examples:
+  - CSV: `execute python -c "import csv; t=sum(int(r['n']) for r in csv.DictReader(open('data.csv'))); open('total.txt','w').write(str(t))"`
+  - JSONL: `execute python -c "import json; t=sum(json.loads(l)['amount'] for l in open('events.jsonl')); open('total.txt','w').write(str(int(t)))"`
+  - SQLite: `execute python -c "import sqlite3,json; c=sqlite3.connect('db.sqlite').cursor(); rows=c.execute('SELECT id,name FROM users').fetchall(); json.dump([{'id':i,'name':n} for i,n in rows], open('out.json','w'))"`
 """
