@@ -69,7 +69,7 @@ def build_agent(workspace: Path, *, recursion_limit: int = 80) -> Any:
         # Transient backend errors (403/429/5xx from IFT endpoint under
         # concurrency) are not "the model misbehaving" — they're rate-limit /
         # connectivity blips. Retry transparently so the agent trace survives.
-        max_retries=5,
+        max_retries=20,
         retry_backoff_factor=1.0,
         retry_on_status_codes=(403, 429, 500, 502, 503, 504),
     )

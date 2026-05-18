@@ -179,8 +179,9 @@ OpenRouter models). The `free-code` rows use Claude Code CLI v2.1.119.
 | 2026-05-14 | `deepagents` | GigaChat-3-Pro | yes (v3) | 137 / 200 | 68.5 % |
 | 2026-05-14 | `pi-mono` | GPT-4.1-nano | ? (run by colleague) | 141 / 200 | 70.5 % |
 | 2026-05-14 | `deepagents` | Qwen3-Coder-30B-A3B Instruct | no | 163 / 200 | 81.5 % |
-| 2026-05-14 | `deepagents` | **GigaChat-3-Ultra** | **yes (v3)** | **164 / 200** | **82.0 %** |
+| 2026-05-14 | `deepagents` | GigaChat-3-Ultra | yes (v3) | 164 / 200 | 82.0 % |
 | 2026-05-15 | `deepagents` | GigaChat-2-Max | yes (v3) | 165 / 200 | 82.5 % |
+| 2026-05-18 | `deepagents` | **GigaChat-3-Ultra** (IFT) | **yes (v4)** | **169 / 200** | **84.5 %** |
 | 2026-05-14 | `deepagents` | DeepSeek V4 Flash | no | 165 / 200 | 82.5 % |
 | 2026-05-14 | `pi-mono` | GPT-4o-mini | ? (run by colleague) | 166 / 200 | 83.0 % |
 | 2026-05-13 | `deepagents` | GPT-4.1-mini | no | 168 / 200 | 84.0 % |
@@ -196,10 +197,15 @@ OpenRouter models). The `free-code` rows use Claude Code CLI v2.1.119.
 | 2026-05-15 | `pi-mono` | Claude Haiku 4.5 | yes (built-in) | 190 / 200 | 95.0 % |
 | 2026-05-13 | `free-code` | **Claude Opus 4.7** | yes (built-in) | **195 / 200** | **97.5 %** |
 
-The GigaChat-3-Ultra row with `yes (v3)` is the pinned configuration of
-this repository — the harness profile registered by
-`deepagents_gigachat`. Without it, GigaChat-3-Ultra scores 134 / 200 on
-the same bench. Raw run logs are written to `harness_bench/runs/`.
+The GigaChat-3-Ultra row with `yes (v4)` is the current pinned
+configuration of this repository — the harness profile registered by
+`deepagents_gigachat` (expanded prompt with explicit guidance on
+required-output strictness, turn-budget control, and `think`-tool
+discipline) plus a wider transient retry budget (`max_retries=20` in
+`runner.py`, which lets the agent ride out IFT IP-throttle bursts of
+500 / 403 without dropping tasks). `v3` is the previous prompt; without
+either, GigaChat-3-Ultra scores 134 / 200 on the same bench. Raw run
+logs are written to `harness_bench/runs/`.
 
 The `yes (built-in)` rows pick up harness profiles that ship inside
 `deepagents` itself (currently only `anthropic:claude-opus-4-7`,
