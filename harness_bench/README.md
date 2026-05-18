@@ -172,27 +172,41 @@ OpenRouter models). The `free-code` rows use Claude Code CLI v2.1.119.
 | --- | --- | --- | --- | --- | --- |
 | 2026-05-14 | `deepagents` | Mistral Small 3.2 24B Instruct | no | 94 / 200 | 47.0 % |
 | 2026-05-13 | `deepagents` | Llama 3.3 70B Instruct | no | 100 / 200 | 50.0 % |
+| 2026-05-15 | `pi-mono` | Llama 3.3 70B Instruct | yes (built-in) | 127 / 200 | 63.5 % |
 | 2026-05-14 | `deepagents` | GPT-4.1-nano | no | 115 / 200 | 57.5 % |
 | 2026-05-14 | `deepagents` | GPT-3.5-turbo | no | 119 / 200 | 59.5 % |
 | 2026-05-13 | `deepagents` | GigaChat-3-Ultra | no | 134 / 200 | 67.0 % |
 | 2026-05-14 | `deepagents` | GigaChat-3-Pro | yes (v3) | 137 / 200 | 68.5 % |
+| 2026-05-14 | `pi-mono` | GPT-4.1-nano | ? (run by colleague) | 141 / 200 | 70.5 % |
 | 2026-05-14 | `deepagents` | Qwen3-Coder-30B-A3B Instruct | no | 163 / 200 | 81.5 % |
 | 2026-05-14 | `deepagents` | **GigaChat-3-Ultra** | **yes (v3)** | **164 / 200** | **82.0 %** |
+| 2026-05-15 | `deepagents` | GigaChat-2-Max | yes (v3) | 165 / 200 | 82.5 % |
 | 2026-05-14 | `deepagents` | DeepSeek V4 Flash | no | 165 / 200 | 82.5 % |
+| 2026-05-14 | `pi-mono` | GPT-4o-mini | ? (run by colleague) | 166 / 200 | 83.0 % |
 | 2026-05-13 | `deepagents` | GPT-4.1-mini | no | 168 / 200 | 84.0 % |
+| 2026-05-18 | `pi-mono` | **GigaChat-3-Ultra** (IFT, token via /v1/token) | yes (ext: gigachat 0.1.1) | **170 / 200** | **85.0 %** |
 | 2026-05-14 | `deepagents` | Qwen3.5-397B-A17B | no | 172 / 200 | 86.0 % |
 | 2026-05-14 | `deepagents` | GLM-4.6 | no | 174 / 200 | 87.0 % |
-| 2026-05-13 | `deepagents` | Claude Haiku 4.5 | no | 177 / 200 | 88.5 % |
+| 2026-05-13 | `deepagents` | Claude Haiku 4.5 | yes (built-in) | 177 / 200 | 88.5 % |
+| 2026-05-14 | `pi-mono` | GPT-4.1-mini | ? (run by colleague) | 179 / 200 | 89.5 % |
 | 2026-05-14 | `deepagents` | GLM-5.1 | no | 180 / 200 | 90.0 % |
 | 2026-05-14 | `deepagents` | Claude Sonnet 4.5 | no | 185 / 200 | 92.5 % |
 | 2026-05-13 | `free-code` | Claude Haiku 4.5 | yes (built-in) | 185 / 200 | 92.5 % |
-| 2026-05-14 | `deepagents` | Claude Opus 4.7 | no | 188 / 200 | 94.0 % |
+| 2026-05-14 | `deepagents` | Claude Opus 4.7 | yes (built-in) | 188 / 200 | 94.0 % |
+| 2026-05-15 | `pi-mono` | Claude Haiku 4.5 | yes (built-in) | 190 / 200 | 95.0 % |
 | 2026-05-13 | `free-code` | **Claude Opus 4.7** | yes (built-in) | **195 / 200** | **97.5 %** |
 
 The GigaChat-3-Ultra row with `yes (v3)` is the pinned configuration of
 this repository — the harness profile registered by
 `deepagents_gigachat`. Without it, GigaChat-3-Ultra scores 134 / 200 on
 the same bench. Raw run logs are written to `harness_bench/runs/`.
+
+The `yes (built-in)` rows pick up harness profiles that ship inside
+`deepagents` itself (currently only `anthropic:claude-opus-4-7`,
+`anthropic:claude-sonnet-4-6`, `anthropic:claude-haiku-4-5` and a few
+`openai:gpt-5.x-codex` keys). Other GPT-* / Sonnet 4.5 / open-weights
+rows fall back to the generic provider profile and score with no
+model-specific adapt.
 
 ## Adding a task
 
