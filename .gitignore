@@ -220,3 +220,7 @@ __marimo__/
 # Local agent logs
 .free-code-logs/
 .cursor
+
+# harness_bench: raw run logs and ad-hoc API dumps (kept locally, summarized in README)
+harness_bench/runs/
+EXPERIMENTS_PLAN.md
