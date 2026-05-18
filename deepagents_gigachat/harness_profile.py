@@ -32,7 +32,11 @@ def register_harness() -> None:
                 "like 'foo.py' or 'src/foo.py' (never start with '/'). The "
                 "content is the file body verbatim — do NOT include line-number "
                 "prefixes from read_file output. Use this for new files or full "
-                "rewrites; use edit_file for small changes."
+                "rewrites; use edit_file for small changes. When the task names "
+                "a required output file, write the final deliverable content into "
+                "that exact file (do NOT write a script as a substitute). Unless "
+                "explicitly requested, do not leave the file empty or with "
+                "placeholder text."
             ),
             "edit_file": (
                 "Replace one exact occurrence of old_string with new_string in "
@@ -55,7 +59,9 @@ def register_harness() -> None:
                 "embed multi-line content via sh -c \"...\" or bash -c \"...\" "
                 "with double quotes; if you must run a multi-line snippet, use "
                 "a single-quoted heredoc (cat <<'EOF' ... EOF). Prefer "
-                "write_file / edit_file for changing file content."
+                "write_file / edit_file for changing file content. Use execute "
+                "for quick verification of required outputs (e.g., `ls -l`, "
+                "`wc -l`) before finishing."
             ),
         },
         extra_middleware=(ThinkToolMiddleware(),),
