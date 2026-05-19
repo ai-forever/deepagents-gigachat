@@ -6,7 +6,6 @@ import json
 from typing import Any
 
 from deepagents import (
-    GeneralPurposeSubagentProfile,
     HarnessProfile,
     register_harness_profile,
 )
@@ -169,14 +168,6 @@ def register_harness() -> None:
             ),
         },
         extra_middleware=(ThinkToolMiddleware(), LoopBreakerMiddleware()),
-        # Drop the TodoListMiddleware (and its `write_todos` tool + 3.6 KB
-        # tool description + after_model enforcement) — atomic bench tasks
-        # don't benefit from plan-then-act, and deepagents 0.6.x inflated
-        # the description from ~1 KB to ~3.6 KB, eating the recursion-limit
-        # budget. Also disable the auto-added general-purpose subagent so
-        # the `task` tool (6.9 KB description in 0.6.x) disappears too.
-        excluded_middleware=frozenset({"TodoListMiddleware"}),
-        general_purpose_subagent=GeneralPurposeSubagentProfile(enabled=False),
     )
 
     for provider_key in ("gigachat", "giga"):
