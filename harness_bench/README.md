@@ -181,7 +181,8 @@ OpenRouter models). The `free-code` rows use Claude Code CLI v2.1.119.
 | 2026-05-14 | `deepagents` | Qwen3-Coder-30B-A3B Instruct | no | 163 / 200 | 81.5 % |
 | 2026-05-14 | `deepagents` | GigaChat-3-Ultra | yes (v3) | 164 / 200 | 82.0 % |
 | 2026-05-15 | `deepagents` | GigaChat-2-Max | yes (v3) | 165 / 200 | 82.5 % |
-| 2026-05-18 | `deepagents` | **GigaChat-3-Ultra** (IFT) | **yes (v4)** | **169 / 200** | **84.5 %** |
+| 2026-05-18 | `deepagents` | GigaChat-3-Ultra (IFT, deepagents 0.5.7) | yes (v4) | 169 / 200 | 84.5 % |
+| 2026-05-19 | `deepagents` | **GigaChat-3-Ultra** (IFT, deepagents 0.6.2) | **yes (v6)** | **169 / 200** | **84.5 %** |
 | 2026-05-14 | `deepagents` | DeepSeek V4 Flash | no | 165 / 200 | 82.5 % |
 | 2026-05-14 | `pi-mono` | GPT-4o-mini | ? (run by colleague) | 166 / 200 | 83.0 % |
 | 2026-05-13 | `deepagents` | GPT-4.1-mini | no | 168 / 200 | 84.0 % |
@@ -197,15 +198,37 @@ OpenRouter models). The `free-code` rows use Claude Code CLI v2.1.119.
 | 2026-05-15 | `pi-mono` | Claude Haiku 4.5 | yes (built-in) | 190 / 200 | 95.0 % |
 | 2026-05-13 | `free-code` | **Claude Opus 4.7** | yes (built-in) | **195 / 200** | **97.5 %** |
 
-The GigaChat-3-Ultra row with `yes (v4)` is the current pinned
-configuration of this repository — the harness profile registered by
-`deepagents_gigachat` (expanded prompt with explicit guidance on
-required-output strictness, turn-budget control, and `think`-tool
-discipline) plus a wider transient retry budget (`max_retries=20` in
-`runner.py`, which lets the agent ride out IFT IP-throttle bursts of
-500 / 403 without dropping tasks). `v3` is the previous prompt; without
-either, GigaChat-3-Ultra scores 134 / 200 on the same bench. Raw run
-logs are written to `harness_bench/runs/`.
+The GigaChat-3-Ultra row with `yes (v6)` is the current pinned
+configuration of this repository on the latest `deepagents` 0.6.x stack
+(also langchain 1.3, langgraph 1.2). It extends the previous `v4` pin
+with the fixes needed to recover from a regression introduced by the
+0.6 upgrade — straight off the upgrade the same prompt scored
+~152 / 200, with most of the loss coming from agent-loop deaths in which
+the model repeated one broken `python -c "...; for ...; ..."` call
+(SyntaxError) until the recursion limit fired. `v6` adds:
+
+- script-pattern guidance for any multi-statement Python (`write_file
+  run.py` → `execute python run.py`), replacing the old one-liner
+  examples that primed the loop;
+- explicit `execute` path-semantics warning: shell runs on the host
+  filesystem (not the virtual root used by the file tools), so paths
+  must stay relative;
+- relative-path overrides on every filesystem tool description (`ls`,
+  `read_file`, `glob`, `write_file`, `edit_file`) to match;
+- `LoopBreakerMiddleware`: when the agent emits three identical
+  `(tool, args)` calls in a row, a one-shot `SystemMessage` is appended
+  ordering it to switch strategy (write a script, switch absolute→
+  relative path, etc.);
+- dropping `TodoListMiddleware` and disabling the auto-added
+  general-purpose subagent so the `write_todos` and `task` tools
+  (3.6 KB and 6.9 KB tool descriptions respectively in 0.6.x) stop
+  burning attention and step budget on this bench.
+
+`v4` is the equivalent pin for `deepagents` 0.5.7. `v3` is the original
+expanded-prompt pin. Without any of them, GigaChat-3-Ultra scores
+134 / 200 on the same bench. The agent runs with `max_retries=20` in
+`runner.py` so transient IFT bursts of 500 / 403 are ridden out instead
+of dropping tasks. Raw run logs are written to `harness_bench/runs/`.
 
 The `yes (built-in)` rows pick up harness profiles that ship inside
 `deepagents` itself (currently only `anthropic:claude-opus-4-7`,
