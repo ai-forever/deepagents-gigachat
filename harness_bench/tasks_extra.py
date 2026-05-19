@@ -742,7 +742,7 @@ TASK_55 = Task(
             "\n"
             "@pytest.fixture\n"
             "def sample_data():\n"
-            '    return {"name": "Alice", "age": 30}\n'
+            "    return {'name': 'Alice', 'age': 30}\n"
         ),
     },
     verifier=all_of(
@@ -752,7 +752,7 @@ TASK_55 = Task(
             "import pytest",
             "@pytest.fixture",
             "def sample_data",
-            '"name"',
+            "name",
             "Alice",
             "30",
         ),
