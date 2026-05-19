@@ -1062,8 +1062,8 @@ TASK_130 = Task(
 
 # 131. Script that counts words in input and writes the count
 _WC_INPUT = "lorem ipsum dolor sit amet consectetur adipiscing elit sed do " * 10
-_WC_INPUT = _WC_INPUT.strip() + "\n"  # 90 words on one line
-_WC_GOLD = "90"
+_WC_INPUT = _WC_INPUT.strip() + "\n"  # 100 words on one line
+_WC_GOLD = "100"
 TASK_131 = Task(
     id="task_131_script_wordcount",
     name="Count words in input.txt and write the count",
