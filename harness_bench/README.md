@@ -19,8 +19,8 @@ pytest, etc.
 | `verifiers.py` | Helpers for writing verifiers: `file_exists`, `file_contains`, `file_lines_equal`, `file_matches_regex`, `json_file_has`, `python_runs`, `python_callable_returns`, `pytest_passes`, `xlsx_cell_equals`, `sqlite_query_returns`, `all_of`, etc. |
 | `core.py` | `Task` (dataclass) and `VerifyResult`. Supports `setup_callback`/`gold_callback` hooks for binary fixtures (xlsx, sqlite, zip, tar). |
 | `runner.py` | Runs a task inside an isolated temporary directory backed by `LocalShellBackend(virtual_mode=True)`, with optional `--concurrency` via a thread pool. |
-| `runner_cli.py` | Alternative runner that drives an external CLI agent (default: `free-code -p --model haiku --dangerously-skip-permissions`). |
-| `__main__.py` | CLI: `list`, `run`, `run-cli`, `verify-gold`. |
+| `runner_cli.py` | Alternative runner that drives an external CLI agent (default: `free-code -p --model haiku --dangerously-skip-permissions`) and contains the clean `pi` baseline preset used by `run-pi`. |
+| `__main__.py` | CLI: `list`, `run`, `run-openai`, `run-openrouter`, `run-cli`, `run-pi`, `verify-gold`. |
 
 Each task is independent: the runner creates a fresh
 `tempfile.TemporaryDirectory`, writes `setup_files` (and optionally calls
@@ -123,10 +123,115 @@ uv run python -m harness_bench run \
 
 # keep the temp workspaces on disk (useful for debugging failures)
 uv run python -m harness_bench run --task task_20_move_function --keep
+
+# optional controller guards for GigaChat/deepagents experiments
+uv run python -m harness_bench run \
+    --retry-agent-errors 3 \
+    --correction-retries 1 \
+    --recover-recursion 1 \
+    --finalization-retries 1
 ```
 
 At the end the runner prints `Passed: N/200` and a one-line summary for
 every failed task.
+
+### Run with pi-mono
+
+Install and authenticate the `pi` CLI first, then use the dedicated
+runner:
+
+```bash
+# uses pi's configured default model
+uv run python -m harness_bench run-pi
+
+# pin model + thinking level explicitly
+uv run python -m harness_bench run-pi \
+    --model sonnet \
+    --thinking high \
+    --concurrency 5
+
+# debug a specific failure and keep the workspace
+uv run python -m harness_bench run-pi \
+    --task task_170_impl_lru_cache \
+    --keep
+```
+
+`run-pi` is intentionally stricter than a normal interactive `pi`
+session: it disables session reuse, discovered context files,
+extensions, skills, prompt templates, and themes, then enables the full
+built-in file/tool set (`read`, `write`, `edit`, `bash`, `grep`, `find`,
+`ls`). That keeps each task isolated and makes results closer to a
+reproducible `pi` baseline instead of "whatever happens to be installed
+on this machine". The runner also sets `PI_SKIP_VERSION_CHECK=1` and
+`PI_TELEMETRY=0` for the spawned `pi` process so startup noise does not
+pollute the benchmark.
+
+GigaChat via `pi-gigachat` needs an explicit extension and, on this
+machine, the Russian root certificate for Node TLS:
+
+```bash
+uv run python -m harness_bench run-pi \
+    --provider gigachat \
+    --model GigaChat-2-Max \
+    --extension .pi-packages/pi-gigachat-patched \
+    --env GIGACHAT_BASE_URL=https://gigachat.sberdevices.ru/v1 \
+    --node-extra-ca-certs certs/russian_trusted_root_ca_pem.crt \
+    --concurrency 5
+```
+
+For the intermittent GigaChat gateway failure seen as
+`GigaChat streaming request failed with status 403`, keep raw runs
+separate from retry-enabled runs and opt in explicitly:
+
+```bash
+uv run python -m harness_bench run-pi \
+    --provider gigachat \
+    --model GigaChat-3-Ultra \
+    --extension .pi-packages/pi-gigachat-patched \
+    --env GIGACHAT_BASE_URL=https://gigachat.sberdevices.ru/v1 \
+    --node-extra-ca-certs certs/russian_trusted_root_ca_pem.crt \
+    --retry-transient-403 2 \
+    --concurrency 5
+```
+
+The local `.pi-packages/pi-gigachat-patched` copy contains a small
+streaming shim for GigaChat function-call arguments: it normalizes
+escaped quotes and decodes escaped whitespace for `write`/`edit`
+content, fixing cases where files were written as
+`print(\'Hello\')` or `1\n2\n3` literals.
+
+If you need a completely custom `pi` invocation, `run-cli` still exists:
+
+```bash
+uv run python -m harness_bench run-cli \
+    --cli-command "pi -p --no-session --model sonnet"
+```
+
+### Run with OpenAI
+
+For direct OpenAI API runs, set `OPENAI_API_KEY` and use `run-openai`:
+
+```bash
+export OPENAI_API_KEY=...
+
+uv run python -m harness_bench run-openai \
+    --model gpt-4.1-mini \
+    --concurrency 5
+```
+
+This uses stock `deepagents` with `langchain-openai`, without the
+GigaChat harness profile. You can pass any OpenAI model id your account
+has access to via `--model`.
+
+OpenAI models can also be tested through OpenRouter:
+
+```bash
+export OPENROUTER_API_KEY=...
+
+uv run python -m harness_bench run-openrouter \
+    --model openai/gpt-4.1-mini \
+    --concurrency 5
+```
 
 ### Verifying without an LLM
 
@@ -157,14 +262,22 @@ documented further below (v3 prompt + `ThinkToolMiddleware` + few-shot
 | 2026-05-13 | `deepagents` | Llama 3.3 70B Instruct | no | 100 / 200 | 50.0 % |
 | 2026-05-14 | `deepagents` | GPT-4.1-nano | no | 115 / 200 | 57.5 % |
 | 2026-05-14 | `deepagents` | GPT-3.5-turbo | no | 119 / 200 | 59.5 % |
+| 2026-05-14 | `pi-mono` | GigaChat-3-Ultra | yes (built-in + `pi-gigachat` write/edit shim) | 132 / 200 | 66.0 % |
 | 2026-05-13 | `deepagents` | GigaChat-3-Ultra | no | 134 / 200 | 67.0 % |
+| 2026-05-14 | `pi-mono` | GigaChat-2-Max | yes (built-in + `pi-gigachat` write/edit shim) | 137 / 200 | 68.5 % |
+| 2026-05-14 | `pi-mono` | GPT-4.1-nano | yes (built-in) | 141 / 200 | 70.5 % |
 | 2026-05-13 | `deepagents` | GigaChat-3-Ultra | **yes (v3 + few-shot)** | **160 / 200** | **80.0 %** |
 | 2026-05-14 | `deepagents` | Qwen3-Coder-30B-A3B Instruct | no | 163 / 200 | 81.5 % |
 | 2026-05-14 | `deepagents` | DeepSeek V4 Flash | no | 165 / 200 | 82.5 % |
+| 2026-05-14 | `pi-mono` | GPT-4o-mini | yes (built-in) | 166 / 200 | 83.0 % |
 | 2026-05-13 | `deepagents` | GPT-4.1-mini | no | 168 / 200 | 84.0 % |
+| 2026-05-15 | `pi-mono` | GigaChat-3-Ultra | yes (built-in + `pi-gigachat` write/edit shim + 403 retry x4, exploratory) | 168 / 200 | 84.0 % |
+| 2026-05-15 | `pi-mono` | GigaChat-3-Ultra | yes (built-in + `pi-gigachat` write/edit shim + 403 retry x2, repeat) | 170 / 200 | 85.0 % |
+| 2026-05-15 | `pi-mono` | GigaChat-3-Ultra | yes (built-in + `pi-gigachat` write/edit shim + 403 retry x2) | 172 / 200 | 86.0 % |
 | 2026-05-14 | `deepagents` | Qwen3.5-397B-A17B | no | 172 / 200 | 86.0 % |
 | 2026-05-14 | `deepagents` | GLM-4.6 | no | 174 / 200 | 87.0 % |
 | 2026-05-13 | `deepagents` | Claude Haiku 4.5 | no | 177 / 200 | 88.5 % |
+| 2026-05-14 | `pi-mono` | GPT-4.1-mini | yes (built-in) | 179 / 200 | 89.5 % |
 | 2026-05-14 | `deepagents` | GLM-5.1 | no | 180 / 200 | 90.0 % |
 | 2026-05-14 | `deepagents` | Claude Sonnet 4.5 | no | 185 / 200 | 92.5 % |
 | 2026-05-13 | `free-code` | Claude Haiku 4.5 | yes (built-in) | 185 / 200 | 92.5 % |
@@ -172,6 +285,14 @@ documented further below (v3 prompt + `ThinkToolMiddleware` + few-shot
 | 2026-05-13 | `free-code` | **Claude Opus 4.7** | yes (built-in) | **195 / 200** | **97.5 %** |
 
 Reading the table:
+- Retrying the known transient `pi-gigachat` streaming 403 twice lifts
+  `pi-mono` + GigaChat-3-Ultra from **132 / 66.0 %** raw to
+  **170-172 / 85.0-86.0 %** retry-enabled across two same-config runs
+  (mean **171 / 85.5 %**); keep these rows separate when comparing
+  runner/model quality.
+- Increasing the retry budget further to x4 did **not** help on one
+  exploratory run (**168 / 84.0 %**), because the remaining variance is
+  mostly model/output quality rather than recoverable 403s.
 - The plugin adds **+26 / +13 pp** to GigaChat-3-Ultra on this bench.
 - Switching from `deepagents` to `free-code` on the same Haiku 4.5 model
   adds **+8 / +4 pp** — runner contribution at the Haiku tier.

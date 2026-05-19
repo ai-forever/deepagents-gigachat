@@ -921,10 +921,10 @@ TASK_89 = Task(
         "Создай в корне рабочей директории файл .pre-commit-config.yaml со"
         " следующими ровно четырьмя непустыми строками (в указанном порядке,"
         " отступы сохраняй):\n"
-        "  repos:\n"
-        "    - repo: https://github.com/astral-sh/ruff-pre-commit\n"
-        "      rev: v0.6.0\n"
-        "      hooks:\n"
+        "repos:\n"
+        "  - repo: https://github.com/astral-sh/ruff-pre-commit\n"
+        "    rev: v0.6.0\n"
+        "    hooks:\n"
         " Никаких других строк добавлять не нужно."
     ),
     setup_files={},
@@ -1037,8 +1037,8 @@ TASK_92 = Task(
         " count.txt."
     ),
     setup_files={"text.txt": "abracadabra and a banana\n"},
-    gold_files={"count.txt": "9\n"},
-    verifier=file_text_equals("count.txt", "9"),
+    gold_files={"count.txt": "10\n"},
+    verifier=file_text_equals("count.txt", "10"),
 )
 
 

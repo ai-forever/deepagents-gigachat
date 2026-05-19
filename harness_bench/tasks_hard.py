@@ -1062,8 +1062,8 @@ TASK_130 = Task(
 
 # 131. Script that counts words in input and writes the count
 _WC_INPUT = "lorem ipsum dolor sit amet consectetur adipiscing elit sed do " * 10
-_WC_INPUT = _WC_INPUT.strip() + "\n"  # 90 words on one line
-_WC_GOLD = "90"
+_WC_INPUT = _WC_INPUT.strip() + "\n"  # 100 words on one line
+_WC_GOLD = "100"
 TASK_131 = Task(
     id="task_131_script_wordcount",
     name="Count words in input.txt and write the count",
@@ -1191,7 +1191,7 @@ TASK_135 = Task(
 def _make_todo_project() -> tuple[dict[str, str], set[str]]:
     """15 files; 4 contain TODO. Return setup + names of TODO-bearing files."""
     files = {}
-    has_todo = {"file_03.txt", "file_07.md", "file_11.py", "file_14.txt"}
+    has_todo = {"file_03.txt", "file_07.txt", "file_11.txt", "file_14.py"}
     for i in range(15):
         ext = ["txt", "md", "py", "txt"][i % 4]
         name = f"file_{i:02d}.{ext}"
@@ -1604,10 +1604,10 @@ TASK_146 = Task(
     tags=("logs", "compute", "execute", "medium"),
     prompt=(
         "В файле access.log примерно 100 строк в формате Apache combined log."
-        " Седьмой токен в каждой строке — это HTTP-статус (целое число от 100"
-        " до 599). Посчитай количество строк, у которых статус начинается с"
-        " цифры 5 (то есть 500..599 — серверные ошибки), и запиши число одной"
-        " строкой в файл err_count.txt."
+        " HTTP-статус — это целое число от 100 до 599 сразу после закрывающей"
+        " кавычки HTTP-запроса. Посчитай количество строк, у которых статус"
+        " начинается с цифры 5 (то есть 500..599 — серверные ошибки), и запиши"
+        " число одной строкой в файл err_count.txt."
     ),
     setup_files={"access.log": _ACCESS_LOG},
     gold_files={"err_count.txt": f"{_ERR_COUNT}\n"},
@@ -1651,9 +1651,10 @@ TASK_147 = Task(
     tags=("logs", "filter", "execute", "medium"),
     prompt=(
         "В файле access.log семь строк в формате Apache combined log."
-        " Сохрани в файл not_found.log только те строки, у которых HTTP-статус"
-        " равен 404, в исходном порядке. Содержимое каждой строки переноси"
-        " байт-в-байт."
+        " HTTP-статус — это целое число сразу после закрывающей кавычки"
+        " HTTP-запроса. Сохрани в файл not_found.log только те строки, у"
+        " которых HTTP-статус равен 404, в исходном порядке. Содержимое каждой"
+        " строки переноси байт-в-байт."
     ),
     setup_files={"access.log": _STATUS_LOG},
     gold_files={"not_found.log": _STATUS_GOLD},

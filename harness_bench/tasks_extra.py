@@ -752,10 +752,11 @@ TASK_55 = Task(
             "import pytest",
             "@pytest.fixture",
             "def sample_data",
-            '"name"',
             "Alice",
             "30",
         ),
+        file_matches_regex("tests/conftest.py", r"['\"]name['\"]\s*:\s*['\"]Alice['\"]"),
+        file_matches_regex("tests/conftest.py", r"['\"]age['\"]\s*:\s*30"),
     ),
 )
 
