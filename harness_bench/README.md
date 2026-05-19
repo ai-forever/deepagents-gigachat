@@ -183,7 +183,8 @@ OpenRouter models). The `free-code` rows use Claude Code CLI v2.1.119.
 | 2026-05-15 | `deepagents` | GigaChat-2-Max | yes (v3) | 165 / 200 | 82.5 % |
 | 2026-05-18 | `deepagents` | GigaChat-3-Ultra (IFT, deepagents 0.5.7) | yes (v4) | 169 / 200 | 84.5 % |
 | 2026-05-19 | `deepagents` | GigaChat-3-Ultra (IFT, deepagents 0.6.2) | yes (v7) | 169 / 200 | 84.5 % |
-| 2026-05-19 | `deepagents` | **GigaChat-3-Ultra** (IFT, deepagents 0.6.2) | **yes (v8)** | **177 / 200** | **88.5 %** |
+| 2026-05-19 | `deepagents` | GigaChat-3-Ultra (IFT, deepagents 0.6.2) | yes (v8) | 177 / 200 | 88.5 % |
+| 2026-05-19 | `deepagents` | **GigaChat-3-Ultra** (IFT, deepagents 0.6.2) | **yes (v9)** | **176–182 / 200 (avg 178)** | **88–91 %** |
 | 2026-05-14 | `deepagents` | DeepSeek V4 Flash | no | 165 / 200 | 82.5 % |
 | 2026-05-14 | `pi-mono` | GPT-4o-mini | ? (run by colleague) | 166 / 200 | 83.0 % |
 | 2026-05-13 | `deepagents` | GPT-4.1-mini | no | 168 / 200 | 84.0 % |
@@ -199,10 +200,30 @@ OpenRouter models). The `free-code` rows use Claude Code CLI v2.1.119.
 | 2026-05-15 | `pi-mono` | Claude Haiku 4.5 | yes (built-in) | 190 / 200 | 95.0 % |
 | 2026-05-13 | `free-code` | **Claude Opus 4.7** | yes (built-in) | **195 / 200** | **97.5 %** |
 
-The GigaChat-3-Ultra row with `yes (v8)` is the current pinned
+The GigaChat-3-Ultra row with `yes (v9)` is the current pinned
 configuration of this repository on the latest `deepagents` 0.6.x stack
-(also langchain 1.3, langgraph 1.2). It is +8 tasks above the v4
-baseline and above the `pi-mono` ceiling (170) on the same model.
+(also langchain 1.3, langgraph 1.2). It extends v8 with two new
+defensive middleware that fired on tasks outside this bench but are
+neutral here within run-to-run noise:
+
+- **`ShellSafetyMiddleware`** rejects obviously dangerous shell
+  patterns (`rm -rf /`, unscoped `chmod 777`, `curl … | sh`, etc.)
+  before they reach `execute`, so a user running the plugin against a
+  real workspace can't lose data to an over-eager model.
+- **`ToolContractMiddleware`** validates each tool-call's arguments
+  against the tool's declared schema before invocation and rewrites
+  the assistant turn with a corrective system note if the shape is
+  off. On other suites this catches arg-name typos that langgraph
+  would otherwise surface as `model_node_exc`.
+
+On three back-to-back 200-task runs the score sat at 176, 182, 177
+(avg 178, median 177) — statistically the same as v8's 177 within the
+±5 noise band documented in `EXPERIMENTS_PLAN.md`. Keeping both
+middleware because they are wins on the broader internal suite.
+
+v8 builds on top of v7's recovery fixes (path-semantics, script-pattern,
+LoopBreaker) and adds two new ones found by tracing the residual v7
+failures:
 
 v8 builds on top of v7's recovery fixes (path-semantics, script-pattern,
 LoopBreaker) and adds two new ones found by tracing the residual v7

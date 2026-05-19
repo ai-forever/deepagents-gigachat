@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 from typing import Any
 
 from deepagents import (
@@ -15,7 +17,7 @@ from langchain_core.tools import tool
 from langgraph.runtime import Runtime
 from pydantic import Field
 
-from deepagents_gigachat.prompts import BASE_SYSTEM_PROMPT
+from deepagents_gigachat.prompts import build_system_prompt
 
 
 @tool("think")
@@ -30,8 +32,77 @@ class ThinkToolMiddleware(AgentMiddleware):
     tools = [_think]
 
 
+class ToolContractMiddleware(AgentMiddleware):
+    """Append an explicit runtime tool contract near the user messages.
+
+    DeepAgents core middleware may add generic filesystem instructions before a
+    profile-level tool exclusion runs. This middleware gives harnesses a
+    provider-agnostic escape hatch: state the tools that are actually usable in
+    this run, without patching DeepAgents itself.
+    """
+
+    name = "ToolContractMiddleware"
+
+    def __init__(self, contract: str | None = None) -> None:
+        self.contract = (contract or "").strip()
+
+    def before_model(self, state: Any, runtime: Runtime[Any]) -> dict[str, Any] | None:  # noqa: ARG002
+        if not self.contract:
+            return None
+        messages = state.get("messages") if isinstance(state, dict) else getattr(state, "messages", None)
+        if not messages:
+            return None
+        marker = "[TOOL-CONTRACT]"
+        for msg in messages:
+            content = getattr(msg, "content", "") or ""
+            if isinstance(content, str) and marker in content:
+                return None
+        return {"messages": [HumanMessage(content=f"{marker}\n{self.contract}")]}
+
+
+class ShellSafetyMiddleware(AgentMiddleware):
+    """Block common unsafe shell serialization patterns before execution."""
+
+    name = "ShellSafetyMiddleware"
+
+    @staticmethod
+    def _unsafe_execute_reason(command: str) -> str | None:
+        if not command:
+            return None
+        if "\n" in command and "<<" not in command and any(x in command for x in ('"', "`", "$(")):
+            return (
+                "multi-line content is embedded in a shell string. Use a structured "
+                "write/edit tool or a single-quoted heredoc instead."
+            )
+        if re.search(r"\bpython3?\s+-c\s+(['\"]).*;\s*(for|if|while|def|class|with)\b", command, re.S):
+            return (
+                "python -c one-liner contains a statement after ';'. Write a script "
+                "file or use a heredoc instead."
+            )
+        return None
+
+    def wrap_tool_call(self, request: Any, handler: Any) -> ToolMessage:
+        tool_call = getattr(request, "tool_call", {}) or {}
+        tool_name = tool_call.get("name") or getattr(getattr(request, "tool", None), "name", "")
+        if tool_name != "execute":
+            return handler(request)
+        args = tool_call.get("args", {}) or {}
+        command = args.get("command", "")
+        reason = self._unsafe_execute_reason(command if isinstance(command, str) else str(command))
+        if not reason:
+            return handler(request)
+        return ToolMessage(
+            content=(
+                "[SHELL-SAFETY] blocked unsafe execute command: "
+                f"{reason} Do not retry the same command shape."
+            ),
+            tool_call_id=tool_call.get("id", ""),
+            name="execute",
+        )
+
+
 class LoopBreakerMiddleware(AgentMiddleware):
-    """Detect agent loops (same tool call repeated 3+ times in a row).
+    """Detect agent loops and repeated failed command families.
 
     GigaChat-3-Ultra on deepagents 0.6.x occasionally commits to a broken
     pattern on turn 1 (e.g. one-line `python -c "...; for v in xs: s += v; ..."`
@@ -109,8 +180,30 @@ class LoopBreakerMiddleware(AgentMiddleware):
             "No such file",
             "String not found",
             "Read-only file system",
+            "unrecognized arguments",
+            "invalid choice",
+            "unknown command",
+            "command not found",
+            "[SHELL-SAFETY]",
         )
         return any(m in text for m in markers)
+
+    @staticmethod
+    def _error_family(text: str) -> str | None:
+        lowered = text.lower()
+        families = (
+            ("invalid-cli-args", ("unrecognized arguments", "invalid choice", "unknown command")),
+            ("shell-command-not-found", ("command not found",)),
+            ("python-syntax", ("syntaxerror",)),
+            ("missing-path", ("no such file", "read-only file system")),
+            ("edit-miss", ("string not found",)),
+            ("shell-safety", ("[shell-safety]",)),
+            ("traceback", ("traceback",)),
+        )
+        for family, markers in families:
+            if any(marker in lowered for marker in markers):
+                return family
+        return None
 
     def before_model(self, state: Any, runtime: Runtime[Any]) -> dict[str, Any] | None:  # noqa: ARG002
         messages = state.get("messages") if isinstance(state, dict) else getattr(state, "messages", None)
@@ -132,7 +225,9 @@ class LoopBreakerMiddleware(AgentMiddleware):
             len(names) == 1
             and all(self._result_is_error(p[2]) for p in pairs)
         )
-        if not (all_same_call or all_same_tool_errors):
+        families = [self._error_family(p[2]) for p in pairs]
+        all_same_error_family = bool(families[0]) and families[0] == families[1] == families[2]
+        if not (all_same_call or all_same_tool_errors or all_same_error_family):
             return None
 
         # Avoid injecting the same nudge twice in a row.
@@ -162,6 +257,12 @@ class LoopBreakerMiddleware(AgentMiddleware):
             f"term or use `ls` to verify the structure.\n"
             f"- If `write_file` says 'already exists': the right tool is "
             f"`edit_file`, NOT another `write_file` with a new name.\n"
+            f"- If a CLI/runtime tool says 'invalid choice' or 'unrecognized "
+            f"arguments': stop inventing flags or subcommands. Use only the "
+            f"tool contract that was supplied for this run.\n"
+            f"- If shell safety blocked a command: use structured file/runtime "
+            f"tools or a single-quoted heredoc; do not embed multi-line content "
+            f"in a quoted shell string.\n"
             f"Do something materially different on the next step."
         )
         # IMPORTANT: GigaChat enforces "system message must be the first
@@ -171,75 +272,98 @@ class LoopBreakerMiddleware(AgentMiddleware):
         return {"messages": [HumanMessage(content=nudge)]}
 
 
-def register_harness() -> None:
-    """Register the GigaChat HarnessProfile under GigaChat provider keys."""
-    profile = HarnessProfile(
-        base_system_prompt=f"{BASE_SYSTEM_PROMPT}\n\n",
-        tool_description_overrides={
-            # Filesystem tools (deepagents 0.6.x) — explicit relative-path
-            # rule so they match `execute` semantics (host shell, not virtual).
-            "ls": (
-                "List files in a directory. Use a relative path (e.g. '.', "
-                "'src') — NEVER absolute '/'."
-            ),
-            "read_file": (
-                "Read a file. Use a relative path like 'foo.py' (NEVER start "
-                "with '/'). Output is prefixed with '<line_no>\\t' for "
-                "display — strip that prefix before reusing the text in "
-                "edit_file/write_file."
-            ),
-            "glob": (
-                "Find files by pattern (e.g. '**/*.py'). Patterns are "
-                "relative to the workspace; do NOT prefix with '/'."
-            ),
-            "write_file": (
-                "Create a file or overwrite it completely. Use a relative path "
-                "like 'foo.py' or 'src/foo.py' (never start with '/'). The "
-                "content is the file body verbatim — do NOT include line-number "
-                "prefixes from read_file output. Use this for new files or full "
-                "rewrites; use edit_file for small changes. When the task names "
-                "a required output file, write the final deliverable content into "
-                "that exact file (do NOT write a script as a substitute). Unless "
-                "explicitly requested, do not leave the file empty or with "
-                "placeholder text."
-            ),
-            "edit_file": (
-                "Replace one exact occurrence of old_string with new_string in "
-                "an existing file. **CRITICAL: STRIP the leading '<line_no>\\t' "
-                "prefix from read_file output before putting text into "
-                "old_string or new_string.** Example: read_file shows "
-                "`     3\\tHello world` — you must pass `old_string='Hello "
-                "world'`, NOT `old_string='     3\\tHello world'`. The "
-                "spaces + line-number + tab prefix is display only, the file "
-                "itself does not contain them. If edit_file says 'String not "
-                "found' and you copied recently from read_file, the prefix "
-                "leak is almost certainly the cause — strip it and retry. "
-                "Always include enough surrounding lines so old_string is "
-                "unique. Use a relative path (never start with '/')."
-            ),
-            "grep": (
-                "Search for a literal substring (NOT a regex) across files. "
-                "Pass exactly ONE phrase per call. To search for several "
-                "alternatives run grep several times. The result lists matching "
-                "lines — read it directly instead of opening every matched "
-                "file again."
-            ),
+def _tool_description_overrides(profile_variant: str) -> dict[str, str]:
+    if profile_variant not in {"native", "native_fs", "filesystem", "fs"}:
+        return {
             "execute": (
-                "Run one short shell command in the workspace directory "
-                "(e.g. 'rm a.txt', 'mv old new', 'mkdir -p logs'). "
-                "IMPORTANT: this runs on the host filesystem, NOT the virtual "
-                "root used by the file tools. Use RELATIVE paths — `cat "
-                "numbers.txt` works, `cat /numbers.txt` will fail with "
-                "'No such file' or 'Read-only file system' (it would read "
-                "the real /). Never embed multi-line content via sh -c \"...\" "
-                "or bash -c \"...\" with double quotes; if you must run a "
-                "multi-line snippet, use a single-quoted heredoc "
-                "(cat <<'EOF' ... EOF). Prefer write_file / edit_file for "
-                "changing file content. Use execute for quick verification "
-                "of required outputs (e.g., `ls -l`, `wc -l`) before finishing."
-            ),
-        },
-        extra_middleware=(ThinkToolMiddleware(), LoopBreakerMiddleware()),
+                "Run one short shell command only when the active runtime tool "
+                "contract permits shell use. Prefer structured tools for reading "
+                "or writing content. Never embed multi-line content in a "
+                "double-quoted shell string."
+            )
+        }
+    return {
+        # Filesystem tools (deepagents 0.6.x) — explicit relative-path
+        # rule so they match `execute` semantics (host shell, not virtual).
+        "ls": (
+            "List files in a directory. Use a relative path (e.g. '.', "
+            "'src') — NEVER absolute '/'."
+        ),
+        "read_file": (
+            "Read a file. Use a relative path like 'foo.py' (NEVER start "
+            "with '/'). Output is prefixed with '<line_no>\\t' for "
+            "display — strip that prefix before reusing the text in "
+            "edit_file/write_file."
+        ),
+        "glob": (
+            "Find files by pattern (e.g. '**/*.py'). Patterns are "
+            "relative to the workspace; do NOT prefix with '/'."
+        ),
+        "write_file": (
+            "Create a file or overwrite it completely. Use a relative path "
+            "like 'foo.py' or 'src/foo.py' (never start with '/'). The "
+            "content is the file body verbatim — do NOT include line-number "
+            "prefixes from read_file output. Use this for new files or full "
+            "rewrites; use edit_file for small changes. When the task names "
+            "a required output file, write the final deliverable content into "
+            "that exact file (do NOT write a script as a substitute). Unless "
+            "explicitly requested, do not leave the file empty or with "
+            "placeholder text."
+        ),
+        "edit_file": (
+            "Replace one exact occurrence of old_string with new_string in "
+            "an existing file. **CRITICAL: STRIP the leading '<line_no>\\t' "
+            "prefix from read_file output before putting text into "
+            "old_string or new_string.** Example: read_file shows "
+            "`     3\\tHello world` — you must pass `old_string='Hello "
+            "world'`, NOT `old_string='     3\\tHello world'`. The "
+            "spaces + line-number + tab prefix is display only, the file "
+            "itself does not contain them. If edit_file says 'String not "
+            "found' and you copied recently from read_file, the prefix "
+            "leak is almost certainly the cause — strip it and retry. "
+            "Always include enough surrounding lines so old_string is "
+            "unique. Use a relative path (never start with '/')."
+        ),
+        "grep": (
+            "Search for a literal substring (NOT a regex) across files. "
+            "Pass exactly ONE phrase per call. To search for several "
+            "alternatives run grep several times. The result lists matching "
+            "lines — read it directly instead of opening every matched "
+            "file again."
+        ),
+        "execute": (
+            "Run one short shell command in the workspace directory "
+            "(e.g. 'rm a.txt', 'mv old new', 'mkdir -p logs'). "
+            "IMPORTANT: this runs on the host filesystem, NOT the virtual "
+            "root used by the file tools. Use RELATIVE paths — `cat "
+            "numbers.txt` works, `cat /numbers.txt` will fail with "
+            "'No such file' or 'Read-only file system' (it would read "
+            "the real /). Never embed multi-line content via sh -c \"...\" "
+            "or bash -c \"...\" with double quotes; if you must run a "
+            "multi-line snippet, use a single-quoted heredoc "
+            "(cat <<'EOF' ... EOF). Prefer write_file / edit_file for "
+            "changing file content. Use execute for quick verification "
+            "of required outputs (e.g., `ls -l`, `wc -l`) before finishing."
+        ),
+    }
+
+
+def register_harness(profile_variant: str | None = None, tool_contract: str | None = None) -> None:
+    """Register the GigaChat HarnessProfile under GigaChat provider keys."""
+    variant = (profile_variant or os.getenv("DEEPAGENTS_GIGACHAT_PROFILE") or "native_fs").strip().lower().replace("-", "_")
+    contract = tool_contract or os.getenv("DEEPAGENTS_GIGACHAT_TOOL_CONTRACT")
+    middleware: list[AgentMiddleware] = [
+        ThinkToolMiddleware(),
+        ShellSafetyMiddleware(),
+        LoopBreakerMiddleware(),
+    ]
+    if contract:
+        middleware.append(ToolContractMiddleware(contract))
+
+    profile = HarnessProfile(
+        base_system_prompt=f"{build_system_prompt(variant)}\n\n",
+        tool_description_overrides=_tool_description_overrides(variant),
+        extra_middleware=tuple(middleware),
     )
 
     for provider_key in ("gigachat", "giga"):
