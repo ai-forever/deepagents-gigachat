@@ -1037,8 +1037,8 @@ TASK_92 = Task(
         " count.txt."
     ),
     setup_files={"text.txt": "abracadabra and a banana\n"},
-    gold_files={"count.txt": "9\n"},
-    verifier=file_text_equals("count.txt", "9"),
+    gold_files={"count.txt": "10\n"},
+    verifier=file_text_equals("count.txt", "10"),
 )
 
 
