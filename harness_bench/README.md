@@ -182,7 +182,8 @@ OpenRouter models). The `free-code` rows use Claude Code CLI v2.1.119.
 | 2026-05-14 | `deepagents` | GigaChat-3-Ultra | yes (v3) | 164 / 200 | 82.0 % |
 | 2026-05-15 | `deepagents` | GigaChat-2-Max | yes (v3) | 165 / 200 | 82.5 % |
 | 2026-05-18 | `deepagents` | GigaChat-3-Ultra (IFT, deepagents 0.5.7) | yes (v4) | 169 / 200 | 84.5 % |
-| 2026-05-19 | `deepagents` | **GigaChat-3-Ultra** (IFT, deepagents 0.6.2) | **yes (v7)** | **169 / 200** | **84.5 %** |
+| 2026-05-19 | `deepagents` | GigaChat-3-Ultra (IFT, deepagents 0.6.2) | yes (v7) | 169 / 200 | 84.5 % |
+| 2026-05-19 | `deepagents` | **GigaChat-3-Ultra** (IFT, deepagents 0.6.2) | **yes (v8)** | **177 / 200** | **88.5 %** |
 | 2026-05-14 | `deepagents` | DeepSeek V4 Flash | no | 165 / 200 | 82.5 % |
 | 2026-05-14 | `pi-mono` | GPT-4o-mini | ? (run by colleague) | 166 / 200 | 83.0 % |
 | 2026-05-13 | `deepagents` | GPT-4.1-mini | no | 168 / 200 | 84.0 % |
@@ -198,36 +199,45 @@ OpenRouter models). The `free-code` rows use Claude Code CLI v2.1.119.
 | 2026-05-15 | `pi-mono` | Claude Haiku 4.5 | yes (built-in) | 190 / 200 | 95.0 % |
 | 2026-05-13 | `free-code` | **Claude Opus 4.7** | yes (built-in) | **195 / 200** | **97.5 %** |
 
-The GigaChat-3-Ultra row with `yes (v7)` is the current pinned
+The GigaChat-3-Ultra row with `yes (v8)` is the current pinned
 configuration of this repository on the latest `deepagents` 0.6.x stack
-(also langchain 1.3, langgraph 1.2). It extends the previous `v4` pin
-with the fixes needed to recover from a regression introduced by the
-0.6 upgrade — straight off the upgrade the same prompt scored
-~152 / 200, with most of the loss coming from agent-loop deaths in which
-the model repeated one broken `python -c "...; for ...; ..."` call
-(SyntaxError) until the recursion limit fired. `v7` adds:
+(also langchain 1.3, langgraph 1.2). It is +8 tasks above the v4
+baseline and above the `pi-mono` ceiling (170) on the same model.
 
-- script-pattern guidance for any multi-statement Python (`write_file
-  run.py` → `execute python run.py`), replacing the old one-liner
-  examples that primed the loop;
-- explicit `execute` path-semantics warning: shell runs on the host
-  filesystem (not the virtual root used by the file tools), so paths
-  must stay relative;
-- relative-path overrides on every filesystem tool description (`ls`,
-  `read_file`, `glob`, `write_file`, `edit_file`) to match;
-- `LoopBreakerMiddleware`: when the agent emits three identical
-  `(tool, args)` calls in a row, a one-shot `SystemMessage` is appended
-  ordering it to switch strategy (write a script, switch absolute→
-  relative path, etc.).
+v8 builds on top of v7's recovery fixes (path-semantics, script-pattern,
+LoopBreaker) and adds two new ones found by tracing the residual v7
+failures:
 
-An intermediate `v6` pin also disabled `TodoListMiddleware` and the
-auto-added general-purpose subagent on the theory that the inflated
-0.6.x descriptions for `write_todos` (3.6 KB) and `task` (6.9 KB) were
-the regression's root cause. Empirically they weren't: re-enabling
-both kept PASS at 169 / 200 while *reducing* recursion-limit fails
-from 8 to 2. `v7` therefore keeps the upstream default tool set
-unchanged and only layers in the path/script/loop-breaker fixes,
-staying closer to stock `deepagents` behavior.
+- **`edit_file` description hardened around the `<line_no>\t` prefix
+  leak.** Per-step traces of v7 model-node failures (e.g. on
+  `task_30_add_todo`) showed the model copying `read_file` output
+  verbatim — including the `     3\t` display prefix — into
+  `edit_file.old_string`, which then never matched the actual file
+  bytes. The new description opens with an explicit "STRIP the
+  '<line_no>\t' prefix" rule, complete with a worked example and a
+  reminder that "String not found" errors after a recent read are
+  almost always this leak.
+- **`LoopBreakerMiddleware` widened + the post-injection 400 fixed.**
+  The original loop detector only triggered on three byte-identical
+  `(tool, args)` tuples. It now also triggers on three consecutive
+  error results from the same tool even when args drift slightly
+  (e.g. the model edits the surrounding context but keeps the prefix
+  leak), and the nudge calls out the prefix-leak as the most likely
+  cause. The nudge itself was switched from `SystemMessage` to
+  `HumanMessage`: GigaChat enforces "system message must be the first
+  message" at the API layer, so a mid-conversation `SystemMessage`
+  produced a hard `400 BadRequest` that langgraph surfaced as
+  `During task with name 'model'`. That single bug masked most of v7's
+  residual `model_node_exc` failures.
+
+`v7` was the closest-to-stock pin on `deepagents` 0.6.x — it kept the
+upstream toolset (`write_todos`, `task`) unchanged and only layered in
+path/script/loop-breaker fixes. `v6` additionally disabled
+`TodoListMiddleware` and the auto-added general-purpose subagent on
+the theory that the inflated 0.6.x descriptions for `write_todos`
+(3.6 KB) and `task` (6.9 KB) were the regression's root cause —
+re-enabling them later kept PASS at 169 and *reduced* recursion-limit
+fails from 8 to 2, so the divergence wasn't worth it.
 
 `v4` is the equivalent pin for `deepagents` 0.5.7. `v3` is the original
 expanded-prompt pin. Without any of them, GigaChat-3-Ultra scores
