@@ -159,6 +159,7 @@ def _cmd_run_router(args: argparse.Namespace) -> int:
         task_ids=args.task,
         model_name=args.model,
         deep_profile=args.deep_profile,
+        use_routing_hints=not args.no_routing_hints,
         keep_workspace=args.keep,
         recursion_limit=args.recursion_limit,
         agent_error_retries=args.retry_agent_errors,
@@ -493,6 +494,14 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "DEEPAGENTS_GIGACHAT_PROFILE value for deep-routed tasks "
             f"(default: {DEFAULT_ROUTER_DEEP_PROFILE})."
+        ),
+    )
+    p_router.add_argument(
+        "--no-routing-hints",
+        action="store_true",
+        help=(
+            "Ignore benchmark task tags during routing and classify tasks "
+            "from prompt text alone."
         ),
     )
     p_router.add_argument("--keep", action="store_true", help="Keep temp workspaces")

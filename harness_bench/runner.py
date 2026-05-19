@@ -97,32 +97,14 @@ def build_agent(workspace: Path, *, recursion_limit: int = 80) -> Any:
     Imports happen here so `--gold` / `list` modes can run without GigaChat
     credentials configured.
     """
-    from deepagents import create_deep_agent
-    from deepagents.backends import LocalShellBackend
-    from langchain_gigachat import GigaChat
+    from deepagents_gigachat.runtime import build_deep_agent
 
-    from deepagents_gigachat import register_harness
-    from deepagents_gigachat.pi_tools import build_pi_like_tools
-
-    register_harness()
-
-    backend = LocalShellBackend(
-        root_dir=workspace,
-        virtual_mode=True,
-        inherit_env=True,
+    return build_deep_agent(
+        workspace,
+        recursion_limit=recursion_limit,
+        model_name=os.getenv("GIGACHAT_MODEL", "GigaChat-3-Ultra"),
+        deep_profile=os.getenv("DEEPAGENTS_GIGACHAT_PROFILE"),
     )
-    model = GigaChat(
-        model=os.getenv("GIGACHAT_MODEL", "GigaChat-3-Ultra"),
-        base_url=os.getenv("GIGACHAT_BASE_URL", "https://gigachat.sberdevices.ru/v1"),
-        verify_ssl_certs=False,
-        profanity_check=False,
-        timeout=600,
-    )
-    tools = None
-    if os.getenv("DEEPAGENTS_GIGACHAT_PROFILE", "").strip().lower() == "pi-tools":
-        tools = build_pi_like_tools(workspace)
-    agent = create_deep_agent(model=model, backend=backend, tools=tools)
-    return agent.with_config({"recursion_limit": recursion_limit})
 
 
 def _ensure_credentials() -> None:

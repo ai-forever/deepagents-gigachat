@@ -58,6 +58,29 @@ def test_route_for_task_sends_data_and_search_to_direct() -> None:
     )
 
 
+def test_route_for_task_can_ignore_benchmark_hints() -> None:
+    assert (
+        runner_router.route_for_task(
+            _task(
+                prompt="Count .py files into count.txt",
+                tags=("python", "impl"),
+            ),
+            use_routing_hints=False,
+        )
+        == "direct"
+    )
+    assert (
+        runner_router.route_for_task(
+            _task(
+                prompt="Implement src/utils.py:slugify",
+                tags=("csv", "compute"),
+            ),
+            use_routing_hints=False,
+        )
+        == "deep"
+    )
+
+
 def test_run_task_router_dispatches_direct(monkeypatch: Any) -> None:
     calls: list[str] = []
 

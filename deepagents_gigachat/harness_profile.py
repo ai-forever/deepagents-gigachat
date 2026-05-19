@@ -24,6 +24,7 @@ from deepagents_gigachat.prompts import (
     PI_TOOLS_LOOP_OVERRIDE,
     PI_TOOLS_SYSTEM_PROMPT,
 )
+from deepagents_gigachat.routing import classify_tool_route
 
 
 @tool("think")
@@ -110,7 +111,7 @@ class AdaptiveToolRoutingMiddleware(PiLiteLoopMiddleware):
             HYBRID_LOOP_OVERRIDE,
         )
         prompt = _latest_user_prompt(request)
-        route = _adaptive_tool_route(prompt)
+        route = classify_tool_route(prompt)
         if route == "hybrid":
             return request.override(system_message=system_message)
 
@@ -158,24 +159,12 @@ def _content_to_text(content: Any) -> str:
 
 def _adaptive_route_overrides(prompt: str) -> tuple[str, ...]:
     """Return generic adaptive hints for a task prompt."""
-    text = f" {prompt.lower()} "
-    if _is_filesystem_commit_task(text):
+    route = classify_tool_route(prompt)
+    if route == "filesystem":
         return (ADAPTIVE_FILESYSTEM_COMMIT_OVERRIDE,)
-    if _is_search_postprocess_task(text):
+    if route == "search":
         return (ADAPTIVE_SEARCH_POSTPROCESS_OVERRIDE,)
     return ()
-
-
-def _adaptive_tool_route(prompt: str) -> str:
-    """Return the generic tool-routing bucket for a prompt."""
-    text = f" {prompt.lower()} "
-    if _is_filesystem_commit_task(text):
-        return "filesystem"
-    if _is_search_postprocess_task(text):
-        return "search"
-    if _is_direct_data_task(text):
-        return "data"
-    return "hybrid"
 
 
 def _adaptive_tool_route_overrides(route: str) -> tuple[str, ...]:
@@ -204,79 +193,6 @@ def _tool_name(tool_obj: Any) -> str | None:
         return None
     name = getattr(tool_obj, "name", None)
     return name if isinstance(name, str) else None
-
-
-def _is_direct_data_task(text: str) -> bool:
-    data_markers = (
-        ".csv",
-        ".db",
-        ".ini",
-        ".json",
-        ".jsonl",
-        ".log",
-        ".md",
-        ".sqlite",
-        ".toml",
-        ".tsv",
-        ".xlsx",
-        ".xml",
-        ".yaml",
-        ".yml",
-        " sqlite",
-    )
-    operation_markers = (
-        "aggregate",
-        "bucket",
-        "convert",
-        "count",
-        "deduplicate",
-        "dedupe",
-        "export",
-        "extract",
-        "filter",
-        "group",
-        "histogram",
-        "join",
-        "mean",
-        "median",
-        "pivot",
-        "sort",
-        "sum",
-        "tally",
-        "total",
-    )
-    return _has_any(text, data_markers) and _has_any(text, operation_markers)
-
-
-def _is_search_postprocess_task(text: str) -> bool:
-    search_markers = (
-        "assert",
-        "class name",
-        "containing",
-        "duplicate",
-        "email",
-        "extract",
-        "find",
-        "grep",
-        "largest",
-        "list files",
-        "matches",
-        "most lines",
-        "todo",
-    )
-    return _has_any(text, search_markers) and (
-        _has_any(text, (".py", ".md", ".yaml", ".yml", ".log", " files ", " under "))
-    )
-
-
-def _is_filesystem_commit_task(text: str) -> bool:
-    if _has_any(text, (" rename ", " move ", " delete ")):
-        return True
-    return " convert " in text and _has_any(text, (" package", " directory", " dir "))
-
-
-def _has_any(text: str, markers: tuple[str, ...]) -> bool:
-    return any(marker in text for marker in markers)
 
 
 def _profile_name() -> str:

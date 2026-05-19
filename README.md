@@ -213,6 +213,32 @@ Runnable examples live in [`examples/`](examples/). The simplest one is
 
 ```bash
 uv run python examples/basic_agent.py
+uv run python examples/routed_workspace.py
+```
+
+## Use As A Routed Runtime
+
+The package now also exposes a benchmark-independent workspace runtime on top
+of the shared routing policy. Use `invoke_routed(...)` when you want the
+library itself to choose between the compact direct controller and the full
+deepagents loop for a local workspace task. The public API is prompt-first:
+it does not require benchmark tags or benchmark-specific artifact parameters.
+
+```python
+from pathlib import Path
+
+from deepagents_gigachat import invoke_routed
+
+workspace = Path("/tmp/my-task")
+workspace.mkdir(parents=True, exist_ok=True)
+
+result = invoke_routed(
+    "Read numbers.csv, sum the value column, and write the integer total to total.txt.",
+    workspace=workspace,
+)
+
+print(result.decision.execution_route)  # "direct" or "deep"
+print(result.decision.tool_route)       # "data", "search", "filesystem", "hybrid"
 ```
 
 ## Benchmark
@@ -252,4 +278,3 @@ uv run ruff check .
 uv run pytest
 uv build
 ```
-

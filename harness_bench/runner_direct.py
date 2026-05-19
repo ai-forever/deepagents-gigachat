@@ -16,7 +16,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
-from deepagents_gigachat.harness_profile import _adaptive_tool_route
+from deepagents_gigachat.routing import classify_tool_route
 from harness_bench.core import Task
 from harness_bench.runner import (
     TaskRun,
@@ -163,7 +163,7 @@ def _controller_messages(
     missing_artifacts: list[str] | None = None,
     previous_failure: str | None = None,
 ) -> list[dict[str, str]]:
-    route = _adaptive_tool_route(prompt)
+    route = classify_tool_route(prompt)
     user_content = prompt
     if previous_failure:
         user_content = (

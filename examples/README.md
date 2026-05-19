@@ -26,6 +26,7 @@
 
 ```bash
 uv run python examples/basic_agent.py
+uv run python examples/routed_workspace.py
 ```
 
 ## Список примеров
@@ -33,3 +34,4 @@ uv run python examples/basic_agent.py
 | Файл | О чём |
 | --- | --- |
 | `basic_agent.py` | Минимальный агент: создаём `GigaChat`, оборачиваем в `create_deep_agent`, задаём один вопрос. |
+| `routed_workspace.py` | Публичный routed runtime: создаём временный workspace, запускаем `invoke_routed(...)`, печатаем выбранный route и результат. |

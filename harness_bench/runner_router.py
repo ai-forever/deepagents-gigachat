@@ -2,13 +2,26 @@
 
 from __future__ import annotations
 
-import os
 import threading
-from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import contextmanager
-from typing import Literal
 
+from deepagents_gigachat.orchestrator import (
+    build_deep_agent_env as _deep_agent_env,
+)
+from deepagents_gigachat.orchestrator import (
+    run_routed,
+)
+from deepagents_gigachat.orchestrator import (
+    temporary_env as _temporary_env,
+)
+from deepagents_gigachat.routing import (
+    ExecutionRoute as RouterMode,
+)
+from deepagents_gigachat.routing import (
+    build_routing_input,
+    classify_execution_route,
+    route_task,
+)
 from harness_bench.core import Task
 from harness_bench.runner import (
     TaskRun,
@@ -28,69 +41,17 @@ from harness_bench.runner_direct import (
 from harness_bench.tasks import ALL_TASKS, get_task
 
 DEFAULT_ROUTER_DEEP_PROFILE = "hybrid"
-RouterMode = Literal["direct", "deep"]
-
-_DEEP_ROUTE_TAGS = frozenset({"fix", "impl", "pytest", "refactor", "tests"})
-_DEEP_EDIT_FORMAT_TAGS = frozenset({"toml"})
-_DEEP_PYTHON_EDIT_TAGS = frozenset({"create", "edit"})
-_DIRECT_PYTHON_TASK_TAGS = frozenset(
-    {
-        "compute",
-        "convert",
-        "csv",
-        "execute",
-        "grep",
-        "json",
-        "logs",
-        "search",
-        "sqlite",
-        "xlsx",
-        "yaml",
-    }
-)
-_DEEP_PROMPT_MARKERS = (
-    "fix the bug",
-    "implement ",
-    "make pytest",
-    "make the tests pass",
-    "pytest passes",
-    "refactor ",
-)
-_DIRECT_PROMPT_MARKERS = (
-    "move function",
-    "перенеси функцию",
-)
 
 
-def route_for_task(task: Task) -> RouterMode:
+def _routing_input_for_task(task: Task, *, use_routing_hints: bool = True):
+    hints = task.tags if use_routing_hints else ()
+    return build_routing_input(task.prompt, hints=hints)
+
+
+def route_for_task(task: Task, *, use_routing_hints: bool = True) -> RouterMode:
     """Choose the execution loop from task semantics, not task ids."""
-    tags = {tag.lower() for tag in task.tags}
-    prompt = task.prompt.lower()
-    if "filesystem" in tags:
-        return "direct"
-    if any(marker in prompt for marker in _DIRECT_PROMPT_MARKERS):
-        return "direct"
-    if "logs" in tags and "filter" in tags:
-        return "deep"
-    if {"xlsx", "csv", "json"} <= tags:
-        return "deep"
-    if tags & _DEEP_ROUTE_TAGS:
-        return "deep"
-    if "edit" in tags and tags & _DEEP_EDIT_FORMAT_TAGS:
-        return "deep"
-    if (
-        "python" in tags
-        and tags & _DEEP_PYTHON_EDIT_TAGS
-        and not tags & _DIRECT_PYTHON_TASK_TAGS
-    ):
-        return "deep"
-
-    if ".toml" in prompt or "pyproject.toml" in prompt:
-        return "deep"
-    if any(marker in prompt for marker in _DEEP_PROMPT_MARKERS):
-        return "deep"
-
-    return "direct"
+    routing_input = _routing_input_for_task(task, use_routing_hints=use_routing_hints)
+    return classify_execution_route(routing_input)
 
 
 def run_task_router(
@@ -98,6 +59,7 @@ def run_task_router(
     *,
     model_name: str = DEFAULT_DIRECT_MODEL,
     deep_profile: str | None = DEFAULT_ROUTER_DEEP_PROFILE,
+    use_routing_hints: bool = True,
     keep_workspace: bool = False,
     recursion_limit: int = 80,
     agent_error_retries: int = 0,
@@ -107,29 +69,33 @@ def run_task_router(
     action_error_retries: int = DEFAULT_ACTION_ERROR_RETRIES,
 ) -> TaskRun:
     """Run one task through the routed benchmark loop."""
-    mode = route_for_task(task)
-    if mode == "direct":
-        return run_task_direct(
-            task,
-            model_name=model_name,
-            keep_workspace=keep_workspace,
-            action_timeout=action_timeout,
-            max_actions=max_actions,
-            action_error_retries=action_error_retries,
-        )
-
-    env = _deep_agent_env(model_name=model_name, deep_profile=deep_profile)
-    with _temporary_env(env):
-        return run_task(
-            task,
-            keep_workspace=keep_workspace,
-            recursion_limit=recursion_limit,
-            agent_error_retries=agent_error_retries,
-            retry_base_delay=retry_base_delay,
-            correction_retries=0,
-            recursion_recovery_attempts=0,
-            finalization_retries=0,
-        )
+    decision = route_task(_routing_input_for_task(task, use_routing_hints=use_routing_hints))
+    deep_env = None
+    if deep_profile is not None:
+        deep_env = _deep_agent_env(model_name=model_name, deep_profile=deep_profile)
+    return run_routed(
+        task,
+        decision=decision,
+        direct_runner=run_task_direct,
+        deep_runner=run_task,
+        direct_kwargs={
+            "model_name": model_name,
+            "keep_workspace": keep_workspace,
+            "action_timeout": action_timeout,
+            "max_actions": max_actions,
+            "action_error_retries": action_error_retries,
+        },
+        deep_kwargs={
+            "keep_workspace": keep_workspace,
+            "recursion_limit": recursion_limit,
+            "agent_error_retries": agent_error_retries,
+            "retry_base_delay": retry_base_delay,
+            "correction_retries": 0,
+            "recursion_recovery_attempts": 0,
+            "finalization_retries": 0,
+        },
+        deep_env=deep_env,
+    )
 
 
 def run_all_router(
@@ -137,6 +103,7 @@ def run_all_router(
     *,
     model_name: str = DEFAULT_DIRECT_MODEL,
     deep_profile: str = DEFAULT_ROUTER_DEEP_PROFILE,
+    use_routing_hints: bool = True,
     keep_workspace: bool = False,
     recursion_limit: int = 80,
     agent_error_retries: int = 0,
@@ -162,6 +129,7 @@ def run_all_router(
             return _run_all_router_sequential(
                 targets,
                 model_name=model_name,
+                use_routing_hints=use_routing_hints,
                 keep_workspace=keep_workspace,
                 recursion_limit=recursion_limit,
                 agent_error_retries=agent_error_retries,
@@ -174,6 +142,7 @@ def run_all_router(
         return _run_all_router_concurrent(
             targets,
             model_name=model_name,
+            use_routing_hints=use_routing_hints,
             keep_workspace=keep_workspace,
             recursion_limit=recursion_limit,
             agent_error_retries=agent_error_retries,
@@ -189,6 +158,7 @@ def _run_all_router_sequential(
     tasks: list[Task],
     *,
     model_name: str,
+    use_routing_hints: bool,
     keep_workspace: bool,
     recursion_limit: int,
     agent_error_retries: int,
@@ -199,12 +169,13 @@ def _run_all_router_sequential(
 ) -> list[TaskRun]:
     results: list[TaskRun] = []
     for task in tasks:
-        mode = route_for_task(task)
-        print(f"-> {task.id}: {task.name} [{_mode_label(mode)}]")
+        decision = route_task(_routing_input_for_task(task, use_routing_hints=use_routing_hints))
+        print(f"-> {task.id}: {task.name} [{decision.mode_label}]")
         run = run_task_router(
             task,
             model_name=model_name,
             deep_profile=None,
+            use_routing_hints=use_routing_hints,
             keep_workspace=keep_workspace,
             recursion_limit=recursion_limit,
             agent_error_retries=agent_error_retries,
@@ -225,6 +196,7 @@ def _run_all_router_concurrent(
     tasks: list[Task],
     *,
     model_name: str,
+    use_routing_hints: bool,
     keep_workspace: bool,
     recursion_limit: int,
     agent_error_retries: int,
@@ -245,6 +217,7 @@ def _run_all_router_concurrent(
                 task,
                 model_name=model_name,
                 deep_profile=None,
+                use_routing_hints=use_routing_hints,
                 keep_workspace=keep_workspace,
                 recursion_limit=recursion_limit,
                 agent_error_retries=agent_error_retries,
@@ -264,45 +237,10 @@ def _run_all_router_concurrent(
                 status = "PASS" if run.passed else "FAIL"
                 print(
                     f"[{completed:3d}/{total}] [{status}] {run.task_id:32s} "
-                    f"{_mode_label(route_for_task(task)):13s} "
+                    f"{route_task(_routing_input_for_task(task, use_routing_hints=use_routing_hints)).mode_label:13s} "
                     f"{run.elapsed_seconds:5.1f}s - {_one_line_detail(run)}"
                 )
                 if keep_workspace and run.workspace:
                     print(f"           workspace: {run.workspace}")
     results.sort(key=lambda r: _task_sort_key(r.task_id))
     return results
-
-
-def _deep_agent_env(
-    *,
-    model_name: str,
-    deep_profile: str | None,
-) -> dict[str, str | None]:
-    env: dict[str, str | None] = {"GIGACHAT_MODEL": model_name}
-    if deep_profile is not None:
-        env["DEEPAGENTS_GIGACHAT_PROFILE"] = deep_profile
-    return env
-
-
-@contextmanager
-def _temporary_env(overrides: dict[str, str | None]) -> Iterator[None]:
-    previous = {name: os.environ.get(name) for name in overrides}
-    try:
-        for name, value in overrides.items():
-            if value is None:
-                os.environ.pop(name, None)
-            else:
-                os.environ[name] = value
-        yield
-    finally:
-        for name, value in previous.items():
-            if value is None:
-                os.environ.pop(name, None)
-            else:
-                os.environ[name] = value
-
-
-def _mode_label(mode: RouterMode) -> str:
-    if mode == "deep":
-        return "deep/hybrid"
-    return "direct"

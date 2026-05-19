@@ -14,6 +14,20 @@ def test_public_api_exports_register_harness() -> None:
     assert register_harness is harness_profile.register_harness
 
 
+def test_public_api_prefers_runtime_entrypoints() -> None:
+    import deepagents_gigachat as package
+
+    assert "invoke_routed" in package.__all__
+    assert "build_deep_agent" in package.__all__
+    assert "register_harness" in package.__all__
+    assert "RoutingInput" not in package.__all__
+    assert "build_routing_input" not in package.__all__
+    assert "route_task" not in package.__all__
+    assert not hasattr(package, "RoutingInput")
+    assert not hasattr(package, "build_routing_input")
+    assert not hasattr(package, "route_task")
+
+
 def test_entry_point_is_declared() -> None:
     eps = entry_points(group="deepagents.harness_profiles")
 
@@ -187,33 +201,6 @@ def test_adaptive_route_overrides_are_generic() -> None:
         "Implement Stack so pytest passes"
     )
     assert code == ()
-
-
-def test_adaptive_tool_route_is_generic() -> None:
-    assert (
-        harness_profile._adaptive_tool_route(  # noqa: SLF001
-            "Inner-join users.csv and orders.csv by user_id"
-        )
-        == "data"
-    )
-    assert (
-        harness_profile._adaptive_tool_route(  # noqa: SLF001
-            "Find the .py file under project/ with the most lines"
-        )
-        == "search"
-    )
-    assert (
-        harness_profile._adaptive_tool_route(  # noqa: SLF001
-            "Move src/old/* to src/new/"
-        )
-        == "filesystem"
-    )
-    assert (
-        harness_profile._adaptive_tool_route(  # noqa: SLF001
-            "Implement Stack so pytest passes"
-        )
-        == "hybrid"
-    )
 
 
 def test_filter_tools_by_name_supports_dict_tool_shapes() -> None:
