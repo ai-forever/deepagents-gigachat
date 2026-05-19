@@ -1191,13 +1191,15 @@ TASK_135 = Task(
 def _make_todo_project() -> tuple[dict[str, str], set[str]]:
     """15 files; 4 contain TODO. Return setup + names of TODO-bearing files."""
     files = {}
-    has_todo = {"file_03.txt", "file_07.md", "file_11.py", "file_14.txt"}
+    todo_idx = {3, 7, 11, 14}
+    has_todo = set()
     for i in range(15):
         ext = ["txt", "md", "py", "txt"][i % 4]
         name = f"file_{i:02d}.{ext}"
         body = f"content for {name}\n"
-        if name in has_todo:
+        if i in todo_idx:
             body += "TODO: revise me\n"
+            has_todo.add(name)
         files[f"project/{name}"] = body
     return files, has_todo
 
