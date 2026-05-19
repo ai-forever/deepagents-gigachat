@@ -83,6 +83,9 @@ comparing stdout, or importing a module and calling a function.
 
 ## Running the benchmark
 
+For a short handoff/checklist you can send to a teammate, see
+[`COLLEAGUE_TESTING.md`](COLLEAGUE_TESTING.md).
+
 The bench lives inside the same `uv` project, so no separate install is
 needed — just sync deps:
 
