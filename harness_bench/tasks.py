@@ -24,6 +24,7 @@ from harness_bench.tasks_extra import EXTRA_TASKS
 from harness_bench.tasks_extreme import EXTREME_TASKS
 from harness_bench.tasks_hard import HARD_TASKS
 from harness_bench.tasks_more import MORE_TASKS
+from harness_bench.tasks_diagnostic import DIAGNOSTIC_TASKS
 from harness_bench.verifiers import (
     all_of,
     file_contains,
@@ -840,6 +841,7 @@ ALL_TASKS: list[Task] = [
     *MORE_TASKS,
     *HARD_TASKS,
     *EXTREME_TASKS,
+    *DIAGNOSTIC_TASKS,
 ]
 
 _TASK_INDEX: dict[str, Task] = {t.id: t for t in ALL_TASKS}

@@ -2592,6 +2592,362 @@ TASK_200 = Task(
 )
 
 
+# ---------------------------------------------------------------------------
+# Group I: Extra-hard extensions (5 tasks, 201..205)
+# ---------------------------------------------------------------------------
+
+# 201. multi-source reconciliation (CSV + JSONL + blacklist)
+_USERS_201 = (
+    "user_id,email\n"
+    "1,alice@example.com\n"
+    "2,bob@example.com\n"
+    "3,carol@example.com\n"
+    "4,dave@example.com\n"
+    "5,erin@example.com\n"
+    "6,fraud@example.com\n"
+)
+_ORDERS_201 = [
+    {"user_id": 1, "amount": 120, "status": "paid"},
+    {"user_id": 1, "amount": 200, "status": "paid"},
+    {"user_id": 1, "amount": 70, "status": "refund"},
+    {"user_id": 2, "amount": 150, "status": "paid"},
+    {"user_id": 2, "amount": 170, "status": "paid"},
+    {"user_id": 3, "amount": 500, "status": "paid"},
+    {"user_id": 4, "amount": 100, "status": "paid"},
+    {"user_id": 4, "amount": 110, "status": "paid"},
+    {"user_id": 4, "amount": 120, "status": "paid"},
+    {"user_id": 5, "amount": 50, "status": "paid"},
+    {"user_id": 5, "amount": 40, "status": "paid"},
+    {"user_id": 5, "amount": 30, "status": "paid"},
+    {"user_id": 6, "amount": 1000, "status": "paid"},
+]
+_ORDERS_201_JSONL = "".join(json.dumps(row) + "\n" for row in _ORDERS_201)
+_BLACKLIST_201 = "carol@example.com\nfraud@example.com\n"
+_VIP_201_GOLD = [
+    {"user_id": 4, "email": "dave@example.com", "paid_total": 330, "paid_orders": 3},
+    {"user_id": 1, "email": "alice@example.com", "paid_total": 320, "paid_orders": 2},
+    {"user_id": 2, "email": "bob@example.com", "paid_total": 320, "paid_orders": 2},
+]
+TASK_201 = Task(
+    id="task_201_reconcile_vip_users",
+    name="Reconcile users/orders/blacklist into vip_users.json",
+    tags=("csv", "jsonl", "pipeline", "execute", "hard"),
+    prompt=(
+        "В рабочей директории есть три файла:\n"
+        "  - users.csv (user_id,email),\n"
+        "  - orders.jsonl (user_id,amount,status),\n"
+        "  - blacklist.txt (по одному email на строку).\n"
+        "Собери vip_users.json — JSON-массив объектов с полями"
+        " user_id, email, paid_total, paid_orders для пользователей, которые:\n"
+        "  1) НЕ находятся в blacklist.txt,\n"
+        "  2) имеют paid_total >= 300 (сумма amount только по статусу paid),\n"
+        "  3) имеют paid_orders >= 2 (количество строк со статусом paid).\n"
+        "Отсортируй массив по paid_total по убыванию, при равенстве — по email"
+        " по возрастанию."
+    ),
+    setup_files={
+        "users.csv": _USERS_201,
+        "orders.jsonl": _ORDERS_201_JSONL,
+        "blacklist.txt": _BLACKLIST_201,
+    },
+    gold_files={"vip_users.json": json.dumps(_VIP_201_GOLD, ensure_ascii=False) + "\n"},
+    verifier=_json_file_matches_loose("vip_users.json", _VIP_201_GOLD, ordered=True),
+)
+
+
+# 202. nested zip extraction + schema normalization + aggregate
+def _zip_202_setup(ws: Path) -> None:
+    with zipfile.ZipFile(ws / "datasets.zip", "w") as zf:
+        zf.writestr("january/sales.csv", "region,amount\neu,100\nus,200\napac,150\n")
+        zf.writestr("february/sales.csv", "amount,region\n120,eu\n220,us\n130,apac\n")
+        zf.writestr("march/sales.csv", "region,amount\neu,90\nus,210\nlatam,80\n")
+
+
+_REGION_202_GOLD = (
+    "region,total\n"
+    "us,630\n"
+    "eu,310\n"
+    "apac,280\n"
+    "latam,80\n"
+)
+TASK_202 = Task(
+    id="task_202_zip_sales_consolidation",
+    name="Extract datasets.zip and consolidate monthly sales",
+    tags=("archive", "csv", "pipeline", "execute", "hard"),
+    prompt=(
+        "В файле datasets.zip лежат три CSV-файла (по одному в папках"
+        " january/february/march). В двух файлах колонки order: region,amount,"
+        " а в одном amount,region. Твоя задача:\n"
+        "  1) распаковать архив,\n"
+        "  2) объединить данные,\n"
+        "  3) посчитать сумму amount по region,\n"
+        "  4) сохранить результат в region_totals.csv (заголовок region,total),"
+        "     отсортировав по total по убыванию,\n"
+        "  5) сохранить top_region.txt с названием региона с максимальной суммой."
+    ),
+    setup_files={},
+    setup_callback=_zip_202_setup,
+    gold_files={"region_totals.csv": _REGION_202_GOLD, "top_region.txt": "us\n"},
+    verifier=all_of(
+        file_text_equals("region_totals.csv", _REGION_202_GOLD),
+        file_text_equals("top_region.txt", "us"),
+    ),
+)
+
+
+# 203. sqlite -> markdown analytical report
+def _sqlite_203_setup(ws: Path) -> None:
+    conn = sqlite3.connect(ws / "support.db")
+    conn.executescript(
+        """
+        CREATE TABLE tickets (id INTEGER PRIMARY KEY, team TEXT, status TEXT, hours INTEGER);
+        INSERT INTO tickets (team, status, hours) VALUES
+            ('alpha', 'closed', 3),
+            ('alpha', 'open', 2),
+            ('alpha', 'closed', 5),
+            ('beta', 'open', 4),
+            ('beta', 'open', 1),
+            ('beta', 'closed', 2),
+            ('gamma', 'closed', 7),
+            ('gamma', 'closed', 1);
+        """
+    )
+    conn.commit()
+    conn.close()
+
+
+_REPORT_203_GOLD = (
+    "| team | open | closed | closed_hours |\n"
+    "| --- | --- | --- | --- |\n"
+    "| alpha | 1 | 2 | 8 |\n"
+    "| beta | 2 | 1 | 2 |\n"
+    "| gamma | 0 | 2 | 8 |\n"
+    "\n"
+    "TOTAL_OPEN=3\n"
+)
+TASK_203 = Task(
+    id="task_203_sqlite_team_markdown_report",
+    name="Build markdown KPI report from support.db tickets",
+    tags=("sqlite", "markdown", "pipeline", "execute", "hard"),
+    prompt=(
+        "В support.db есть таблица tickets(id, team, status, hours)."
+        " Построй отчет team_report.md в виде markdown-таблицы с колонками"
+        " team | open | closed | closed_hours, где:\n"
+        "  - open = количество тикетов status='open',\n"
+        "  - closed = количество тикетов status='closed',\n"
+        "  - closed_hours = сумма hours только по status='closed'.\n"
+        "Строки отсортируй по team по возрастанию. После таблицы добавь пустую"
+        " строку и строку вида TOTAL_OPEN=<число>."
+    ),
+    setup_files={},
+    setup_callback=_sqlite_203_setup,
+    gold_files={"team_report.md": _REPORT_203_GOLD},
+    verifier=file_text_equals("team_report.md", _REPORT_203_GOLD),
+)
+
+
+# 204. multi-file API migration + report
+_MIGRATION_204_FILES = {
+    "service/a.py": (
+        "import requests\n"
+        "\n"
+        "\n"
+        "def fetch_user(uid):\n"
+        "    return requests.get(f'https://api.example.com/users/{uid}').json()\n"
+    ),
+    "service/b.py": (
+        "import requests as rq\n"
+        "\n"
+        "\n"
+        "def create(payload):\n"
+        "    return rq.post('https://api.example.com/create', json=payload)\n"
+    ),
+    "service/c.py": (
+        "from requests import get\n"
+        "\n"
+        "\n"
+        "def ping():\n"
+        "    return get('https://api.example.com/ping').status_code\n"
+    ),
+    "infra/http_client.py": (
+        "class HTTPClient:\n"
+        "    def get(self, url, **kwargs):\n"
+        "        raise NotImplementedError\n"
+        "\n"
+        "    def post(self, url, **kwargs):\n"
+        "        raise NotImplementedError\n"
+        "\n"
+        "\n"
+        "http_client = HTTPClient()\n"
+    ),
+}
+
+
+def _verify_task_204(ws: Path) -> VerifyResult:
+    checks = [
+        ("service/a.py", ["from infra.http_client import http_client", "http_client.get("], ["requests.get", "import requests"]),
+        ("service/b.py", ["from infra.http_client import http_client", "http_client.post("], ["rq.post", "import requests as rq"]),
+        ("service/c.py", ["from infra.http_client import http_client", "http_client.get("], ["from requests import get", " get("]),
+    ]
+    for rel, required, forbidden in checks:
+        p = ws / rel
+        if not p.exists():
+            return VerifyResult(False, f"{rel} missing")
+        text = p.read_text()
+        missing = [s for s in required if s not in text]
+        if missing:
+            return VerifyResult(False, f"{rel} missing required snippets: {missing}")
+        present = [s for s in forbidden if s in text]
+        if present:
+            return VerifyResult(False, f"{rel} still has legacy API snippets: {present}")
+    report = ws / "migration_report.json"
+    if not report.exists():
+        return VerifyResult(False, "migration_report.json missing")
+    try:
+        data = json.loads(report.read_text())
+    except json.JSONDecodeError as exc:
+        return VerifyResult(False, f"migration_report.json invalid JSON: {exc}")
+    if data.get("files_updated") != 3 or data.get("replacements") != 3:
+        return VerifyResult(False, f"migration_report.json mismatch: {data!r}")
+    return VerifyResult(True, "requests API migrated in 3 files and report is correct")
+
+
+TASK_204 = Task(
+    id="task_204_requests_to_http_client_migration",
+    name="Migrate 3 files from requests calls to infra.http_client",
+    tags=("refactor", "python", "multifile", "execute", "hard"),
+    prompt=(
+        "В файлах service/a.py, service/b.py, service/c.py есть вызовы"
+        " requests API (в разных формах импорта). Выполни миграцию на"
+        " централизованный клиент из infra/http_client.py:\n"
+        "  - в каждом из трех service/*.py должен быть импорт"
+        "    'from infra.http_client import http_client';\n"
+        "  - requests.get(...) заменить на http_client.get(...);\n"
+        "  - requests.post(...)/rq.post(...) заменить на http_client.post(...);\n"
+        "  - from requests import get + get(...) тоже мигрировать на"
+        "    http_client.get(...).\n"
+        "URL и аргументы вызовов не менять. После миграции создай"
+        " migration_report.json с объектом {'files_updated': 3, 'replacements': 3}."
+    ),
+    setup_files=_MIGRATION_204_FILES,
+    gold_files={
+        "service/a.py": (
+            "from infra.http_client import http_client\n"
+            "\n"
+            "\n"
+            "def fetch_user(uid):\n"
+            "    return http_client.get(f'https://api.example.com/users/{uid}').json()\n"
+        ),
+        "service/b.py": (
+            "from infra.http_client import http_client\n"
+            "\n"
+            "\n"
+            "def create(payload):\n"
+            "    return http_client.post('https://api.example.com/create', json=payload)\n"
+        ),
+        "service/c.py": (
+            "from infra.http_client import http_client\n"
+            "\n"
+            "\n"
+            "def ping():\n"
+            "    return http_client.get('https://api.example.com/ping').status_code\n"
+        ),
+        "migration_report.json": '{"files_updated": 3, "replacements": 3}\n',
+    },
+    verifier=_verify_task_204,
+)
+
+
+# 205. advanced pytest implementation task
+TASK_205 = Task(
+    id="task_205_impl_paid_aggregator",
+    name="Implement normalize_transactions so pytest passes",
+    tags=("python", "impl", "pytest", "execute", "hard"),
+    prompt=(
+        "Создай файл pipeline.py с функцией normalize_transactions(rows)."
+        " Вход: список словарей с полями user, amount, status.\n"
+        " Поведение:\n"
+        "  - учитывай только строки со status == 'paid';\n"
+        "  - amount может быть int/float/str, нужно корректно привести к float;\n"
+        "  - если amount нельзя привести к числу у paid-строки — бросай ValueError;\n"
+        "  - агрегируй сумму amount по user;\n"
+        "  - верни list[tuple[user, total]], где total округлен до 2 знаков;\n"
+        "  - сортировка: total по убыванию, при равенстве user по возрастанию.\n"
+        "Тесты в tests/test_pipeline.py должны пройти."
+    ),
+    setup_files={
+        "tests/test_pipeline.py": (
+            "import pytest\n"
+            "\n"
+            "from pipeline import normalize_transactions\n"
+            "\n"
+            "\n"
+            "def test_basic_aggregation_and_sort():\n"
+            "    rows = [\n"
+            "        {'user': 'alice', 'amount': '100.20', 'status': 'paid'},\n"
+            "        {'user': 'bob', 'amount': 50, 'status': 'paid'},\n"
+            "        {'user': 'alice', 'amount': 49.8, 'status': 'paid'},\n"
+            "        {'user': 'bob', 'amount': 70, 'status': 'refund'},\n"
+            "        {'user': 'carol', 'amount': '75', 'status': 'paid'},\n"
+            "    ]\n"
+            "    assert normalize_transactions(rows) == [('alice', 150.0), ('carol', 75.0), ('bob', 50.0)]\n"
+            "\n"
+            "\n"
+            "def test_tie_breaker_by_user_name():\n"
+            "    rows = [\n"
+            "        {'user': 'zoe', 'amount': 10, 'status': 'paid'},\n"
+            "        {'user': 'amy', 'amount': 10, 'status': 'paid'},\n"
+            "    ]\n"
+            "    assert normalize_transactions(rows) == [('amy', 10.0), ('zoe', 10.0)]\n"
+            "\n"
+            "\n"
+            "def test_ignores_non_paid():\n"
+            "    rows = [\n"
+            "        {'user': 'alice', 'amount': 100, 'status': 'refund'},\n"
+            "        {'user': 'bob', 'amount': 50, 'status': 'failed'},\n"
+            "    ]\n"
+            "    assert normalize_transactions(rows) == []\n"
+            "\n"
+            "\n"
+            "def test_invalid_paid_amount_raises():\n"
+            "    rows = [\n"
+            "        {'user': 'alice', 'amount': 'oops', 'status': 'paid'},\n"
+            "    ]\n"
+            "    with pytest.raises(ValueError):\n"
+            "        normalize_transactions(rows)\n"
+            "\n"
+            "\n"
+            "def test_rounding_to_2_digits():\n"
+            "    rows = [\n"
+            "        {'user': 'alice', 'amount': '0.3333', 'status': 'paid'},\n"
+            "        {'user': 'alice', 'amount': '0.3333', 'status': 'paid'},\n"
+            "        {'user': 'alice', 'amount': '0.3333', 'status': 'paid'},\n"
+            "    ]\n"
+            "    assert normalize_transactions(rows) == [('alice', 1.0)]\n"
+        ),
+    },
+    gold_files={
+        "pipeline.py": (
+            "def normalize_transactions(rows):\n"
+            "    totals = {}\n"
+            "    for row in rows:\n"
+            "        if row.get('status') != 'paid':\n"
+            "            continue\n"
+            "        user = row.get('user')\n"
+            "        try:\n"
+            "            amount = float(row.get('amount'))\n"
+            "        except (TypeError, ValueError):\n"
+            "            raise ValueError('invalid amount for paid transaction')\n"
+            "        totals[user] = totals.get(user, 0.0) + amount\n"
+            "    out = [(user, round(total, 2)) for user, total in totals.items()]\n"
+            "    out.sort(key=lambda x: (-x[1], x[0]))\n"
+            "    return out\n"
+        ),
+    },
+    verifier=pytest_passes("tests"),
+)
+
+
 EXTREME_TASKS: list[Task] = [
     TASK_151, TASK_152, TASK_153, TASK_154, TASK_155, TASK_156, TASK_157, TASK_158,
     TASK_159, TASK_160, TASK_161,
@@ -2601,6 +2957,7 @@ EXTREME_TASKS: list[Task] = [
     TASK_183, TASK_184, TASK_185, TASK_186, TASK_187,
     TASK_188, TASK_189, TASK_190, TASK_191, TASK_192, TASK_193, TASK_194, TASK_195,
     TASK_196, TASK_197, TASK_198, TASK_199, TASK_200,
+    TASK_201, TASK_202, TASK_203, TASK_204, TASK_205,
 ]
 
 
