@@ -184,7 +184,7 @@ OpenRouter models). The `free-code` rows use Claude Code CLI v2.1.119.
 | 2026-05-18 | `deepagents` | GigaChat-3-Ultra (IFT, deepagents 0.5.7) | yes (v4) | 169 / 200 | 84.5 % |
 | 2026-05-19 | `deepagents` | GigaChat-3-Ultra (IFT, deepagents 0.6.2) | yes (v7) | 169 / 200 | 84.5 % |
 | 2026-05-19 | `deepagents` | GigaChat-3-Ultra (IFT, deepagents 0.6.2) | yes (v8) | 177 / 200 | 88.5 % |
-| 2026-05-19 | `deepagents` | **GigaChat-3-Ultra** (IFT, deepagents 0.6.2) | **yes (v9)** | **176–182 / 200 (avg 178)** | **88–91 %** |
+| 2026-05-20 | `deepagents` | **GigaChat-3-Ultra** (IFT, deepagents 0.6.2) | **yes (v9)** | **176–182 / 200 (4 runs: 176, 182, 177, 181 — avg 179)** | **88–91 %** |
 | 2026-05-14 | `deepagents` | DeepSeek V4 Flash | no | 165 / 200 | 82.5 % |
 | 2026-05-14 | `pi-mono` | GPT-4o-mini | ? (run by colleague) | 166 / 200 | 83.0 % |
 | 2026-05-13 | `deepagents` | GPT-4.1-mini | no | 168 / 200 | 84.0 % |
@@ -216,10 +216,11 @@ neutral here within run-to-run noise:
   off. On other suites this catches arg-name typos that langgraph
   would otherwise surface as `model_node_exc`.
 
-On three back-to-back 200-task runs the score sat at 176, 182, 177
-(avg 178, median 177) — statistically the same as v8's 177 within the
-±5 noise band documented in `EXPERIMENTS_PLAN.md`. Keeping both
-middleware because they are wins on the broader internal suite.
+On four back-to-back 200-task runs the score sat at 176, 182, 177,
+181 (avg 179, median 179) — a +2 shift over v8's 177 that's at the
+edge of the documented ±5 noise band in `EXPERIMENTS_PLAN.md`.
+Keeping both middleware because they are clear wins on the broader
+internal suite and at worst neutral here.
 
 v8 builds on top of v7's recovery fixes (path-semantics, script-pattern,
 LoopBreaker) and adds two new ones found by tracing the residual v7
