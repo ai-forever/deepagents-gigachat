@@ -200,6 +200,9 @@ OpenRouter models). The `free-code` rows use Claude Code CLI v2.1.119.
 | 2026-05-14 | `deepagents` | Claude Opus 4.7 | yes (built-in) | 188 / 200 | 94.0 % |
 | 2026-05-15 | `pi-mono` | Claude Haiku 4.5 | yes (built-in) | 190 / 200 | 95.0 % |
 | 2026-05-13 | `free-code` | **Claude Opus 4.7** | yes (built-in) | **195 / 200** | **97.5 %** |
+| 2026-05-20 | `qwen-code` 0.15.11 | **qwen3-coder-next** (via OpenRouter, `-y`) | yes (built-in) | **207 / 221** | **93.7 %** |
+| 2026-05-20 | `deepagents` | GigaChat-3-Ultra:32.3.18.5 (IFT, deepagents 0.6.2) | yes (v9) | 186 / 221 | 84.2 % |
+| 2026-05-20 | `deepagents` | **GigaChat-3-Ultra:32.3.7.3** (PROM, deepagents 0.6.2) | **yes (v9)** | **188 / 221** | **85.1 %** |
 
 The GigaChat-3-Ultra row with `yes (v9)` is the current pinned
 configuration of this repository on the latest `deepagents` 0.6.x stack
