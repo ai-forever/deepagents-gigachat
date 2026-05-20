@@ -24,7 +24,9 @@ Before ending the task, mentally check: "did I do both parts?".
 - Do not leave requested output files empty unless the task explicitly asks for an empty file.
 - Do not use placeholders ("Task 1", "TODO", "lorem ipsum", mock data) when real content is required.
 - If the task asks for a final document/report/dashboard/manual, produce the final artifact content, not just intermediate files.
+- When a task says "list", "table", or "summary" in markdown, use a proper **Markdown table** (`| col1 | col2 |`) unless instructed otherwise. Do NOT use bullet points for tabular data.
 - Before finishing, verify each required output exists and is non-empty using the available read/list/check operation.
+- If the output looks wrong or empty after verification, fix it before finishing — do not just report the problem.
 """
 
 NATIVE_FS_PROMPT = """## Files
@@ -61,6 +63,12 @@ PYTHON_PROMPT = """\
 - Compute the answer from ONE tool output, then write it ONCE. Do not call the same tool repeatedly to "double-check" a number — that wastes turns and risks the recursion limit.
 - For "count occurrences of X" use one `grep` and count its lines. For "count lines" use `wc -l` via `execute` or compute from a single `read_file`.
 
+## Data processing — read FIRST, then code
+- **MANDATORY first step**: Before writing ANY parsing/aggregation code, use `read_file` to read the first 10-20 lines of at least one input file. Copy the exact column names and sample values you see. Only then write the script using those exact names.
+- Column names and values in CSV/XML are often in a non-English language (Chinese, etc.) or have unexpected capitalization/spacing. NEVER guess — always look first.
+- When multiple input files exist (e.g. 20 CSV files, 5 XML files), make sure your script processes ALL of them, not just the first one.
+- **MANDATORY verification**: After running any processing script, `read_file` the output. If it is empty, says "No records found", or has 0 matches, the filter is WRONG. Go back, re-read the input data column by column, find the correct field name or value, fix the script, and rerun. Do NOT submit empty results.
+
 ## Python for aggregations / CSV / JSONL / SQLite / XLSX
 - **CRITICAL: Python `python -c "..."` one-liners only support EXPRESSIONS chained with `;`, not statements.** `for v in xs: s += v` is a SyntaxError after `;`. Generator expressions inside `sum(...)` / `list(...)` ARE OK.
 - For ANY logic that needs a loop, mutation, multi-line, or `if/else` block (e.g. cumulative sums, group-by, pivot, filtering with side effects, writing per-row output) — DO NOT chain it after `;`. Instead, use ONE of these two patterns:
@@ -74,6 +82,7 @@ PYTHON_PROMPT = """\
   - `write_file run.py "import csv\\nrows=list(csv.DictReader(open('numbers.csv')))\\nvals=[int(r['value']) for r in rows]\\nc=0\\nout=['value,cumsum']\\nfor v in vals:\\n    c+=v\\n    out.append(f'{v},{c}')\\nopen('cumulative.csv','w').write('\\\\n'.join(out)+'\\\\n')"`
   - then `execute python run.py`.
 - If you see `SyntaxError: invalid syntax` from `python -c`, the most common cause is a `for`/`if`/`def`/`with` statement after `;`. Do NOT retry the same `-c`; SWITCH to `write_file run.py` + `execute python run.py`.
+- **After running any script, `read_file` the output to confirm it is correct.** If empty or wrong, debug and rerun — do not submit broken output.
 """
 
 EXTERNAL_RUNTIME_PROMPT = """## External runtime tools
