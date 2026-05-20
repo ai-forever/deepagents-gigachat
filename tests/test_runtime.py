@@ -86,6 +86,36 @@ def test_invoke_routed_dispatches_deep_branch(tmp_path: Path, monkeypatch: Monke
     ]
 
 
+def test_invoke_routed_can_use_model_router(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    agent = _FakeAgent()
+    seen_model_names: list[str] = []
+
+    def fake_build_model(*, model_name: str = runtime.DEFAULT_MODEL_NAME) -> _FakeModel:
+        seen_model_names.append(model_name)
+        return _FakeModel('{"execution_route":"deep","tool_route":"hybrid"}')
+
+    monkeypatch.setattr(runtime, "build_model", fake_build_model)
+    monkeypatch.setattr(runtime, "build_deep_agent", lambda *_args, **_kwargs: agent)
+
+    result = runtime.invoke_routed(
+        "Please route this with the model router.",
+        workspace=tmp_path,
+        model_name="GigaChat-Task",
+        router_mode="model",
+        router_model_name="GigaChat-Router",
+        deep_profile="adaptive-tools",
+        ensure_auth=False,
+        load_env=False,
+    )
+
+    assert result.decision.execution_route == "deep"
+    assert result.decision.tool_route == "hybrid"
+    assert seen_model_names == ["GigaChat-Router"]
+    assert agent.calls == [
+        {"messages": [{"role": "user", "content": "Please route this with the model router."}]}
+    ]
+
+
 def test_load_env_from_dotenv_prefers_workspace_file(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
     env_path = tmp_path / ".env"
     env_path.write_text("DEEPAGENTS_GIGACHAT_RUNTIME_TEST=loaded\n", encoding="utf-8")

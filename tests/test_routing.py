@@ -7,7 +7,18 @@ from deepagents_gigachat.routing import (
     classify_execution_route,
     classify_tool_route,
     route_task,
+    route_task_with_model,
 )
+
+
+class _FakeRouterModel:
+    def __init__(self, response_text: str) -> None:
+        self.response_text = response_text
+        self.calls: list[list[dict[str, str]]] = []
+
+    def invoke(self, payload: list[dict[str, str]]) -> str:
+        self.calls.append(payload)
+        return self.response_text
 
 
 def test_classify_tool_route_is_generic() -> None:
@@ -155,3 +166,55 @@ def test_route_task_combines_execution_and_tool_routes() -> None:
     assert decision.execution_route == "direct"
     assert decision.tool_route == "search"
     assert decision.mode_label == "direct"
+
+
+def test_route_task_with_model_uses_model_output() -> None:
+    model = _FakeRouterModel('{"execution_route":"deep","tool_route":"hybrid"}')
+
+    decision = route_task_with_model(
+        build_routing_input("Please route this ambiguous workspace task."),
+        model=model,
+    )
+
+    assert decision.execution_route == "deep"
+    assert decision.tool_route == "hybrid"
+    assert model.calls
+    assert "Deterministic prior" in model.calls[0][1]["content"]
+
+
+def test_route_task_with_model_keeps_rules_deep_guardrail() -> None:
+    model = _FakeRouterModel('{"execution_route":"direct","tool_route":"hybrid"}')
+
+    decision = route_task_with_model(
+        build_routing_input("В файле version.py обнови значение VERSION с 1.0.0 на 1.0.1."),
+        model=model,
+    )
+
+    assert decision.execution_route == "deep"
+    assert decision.tool_route == "hybrid"
+
+
+def test_route_task_with_model_keeps_rules_structured_direct_guardrail() -> None:
+    model = _FakeRouterModel('{"execution_route":"deep","tool_route":"hybrid"}')
+
+    decision = route_task_with_model(
+        build_routing_input(
+            "В файле access.log сгруппируй запросы по часу и сохрани результат в hourly.csv."
+        ),
+        model=model,
+    )
+
+    assert decision.execution_route == "direct"
+    assert decision.tool_route == "data"
+
+
+def test_route_task_with_model_falls_back_to_rules() -> None:
+    model = _FakeRouterModel("not json")
+
+    decision = route_task_with_model(
+        build_routing_input("Find the .py file under project/ with the most lines"),
+        model=model,
+    )
+
+    assert decision.execution_route == "direct"
+    assert decision.tool_route == "search"

@@ -17,10 +17,12 @@ from typing import Any
 from deepagents_gigachat.orchestrator import build_deep_agent_env, run_routed, temporary_env
 from deepagents_gigachat.routing import (
     RoutingDecision,
+    RoutingStrategy,
     ToolRoute,
     build_routing_input,
     classify_tool_route,
     route_task,
+    route_task_with_model,
 )
 
 DEFAULT_MODEL_NAME = "GigaChat-3-Ultra"
@@ -327,6 +329,8 @@ def invoke_routed(
     *,
     workspace: str | Path,
     model_name: str = DEFAULT_MODEL_NAME,
+    router_mode: RoutingStrategy = "rules",
+    router_model_name: str | None = None,
     deep_profile: str = "hybrid",
     recursion_limit: int = DEFAULT_RECURSION_LIMIT,
     tools: Sequence[Any] | None = None,
@@ -340,7 +344,12 @@ def invoke_routed(
     if ensure_auth:
         ensure_credentials()
 
-    decision = route_task(build_routing_input(prompt))
+    routing_input = build_routing_input(prompt)
+    if router_mode == "model":
+        router_model = build_model(model_name=router_model_name or model_name)
+        decision = route_task_with_model(routing_input, model=router_model)
+    else:
+        decision = route_task(routing_input)
     return run_routed(
         prompt,
         decision=decision,

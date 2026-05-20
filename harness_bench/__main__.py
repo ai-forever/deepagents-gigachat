@@ -159,6 +159,8 @@ def _cmd_run_router(args: argparse.Namespace) -> int:
         task_ids=args.task,
         model_name=args.model,
         deep_profile=args.deep_profile,
+        router_mode=args.router_mode,
+        router_model_name=args.router_model,
         use_routing_hints=not args.no_routing_hints,
         keep_workspace=args.keep,
         recursion_limit=args.recursion_limit,
@@ -494,6 +496,19 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "DEEPAGENTS_GIGACHAT_PROFILE value for deep-routed tasks "
             f"(default: {DEFAULT_ROUTER_DEEP_PROFILE})."
+        ),
+    )
+    p_router.add_argument(
+        "--router-mode",
+        choices=("rules", "model"),
+        default="rules",
+        help="Choose the outer router implementation (default: rules).",
+    )
+    p_router.add_argument(
+        "--router-model",
+        help=(
+            "Optional model name for model-based routing. Defaults to --model "
+            "when --router-mode model is used."
         ),
     )
     p_router.add_argument(

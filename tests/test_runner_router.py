@@ -81,6 +81,23 @@ def test_route_for_task_can_ignore_benchmark_hints() -> None:
     )
 
 
+def test_route_for_task_can_use_model_router(monkeypatch: Any) -> None:
+    class _FakeRouterModel:
+        def invoke(self, _payload: list[dict[str, str]]) -> str:
+            return '{"execution_route":"deep","tool_route":"hybrid"}'
+
+    monkeypatch.setattr(runner_router, "_build_router_model", lambda **_kwargs: _FakeRouterModel())
+
+    assert (
+        runner_router.route_for_task(
+            _task(prompt="Please route this ambiguous task.", tags=()),
+            router_mode="model",
+            router_model_name="GigaChat-Router",
+        )
+        == "deep"
+    )
+
+
 def test_run_task_router_dispatches_direct(monkeypatch: Any) -> None:
     calls: list[str] = []
 
