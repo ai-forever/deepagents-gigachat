@@ -188,7 +188,7 @@ OpenRouter models). The `free-code` rows use Claude Code CLI v2.1.119.
 | 2026-05-14 | `deepagents` | DeepSeek V4 Flash | no | 165 / 200 | 82.5 % |
 | 2026-05-14 | `pi-mono` | GPT-4o-mini | ? (run by colleague) | 166 / 200 | 83.0 % |
 | 2026-05-13 | `deepagents` | GPT-4.1-mini | no | 168 / 200 | 84.0 % |
-| 2026-05-18 | `pi-mono` | **GigaChat-3-Ultra** (IFT, token via /v1/token) | yes (ext: gigachat 0.1.1) | **170 / 200** | **85.0 %** |
+| 2026-05-20 | `pi-mono` 0.75.3 | **GigaChat-3-Ultra** (IFT) | yes (ext: gigachat 0.1.1) | **170 / 200** | **85.0 %** |
 | 2026-05-14 | `deepagents` | Qwen3.5-397B-A17B | no | 172 / 200 | 86.0 % |
 | 2026-05-14 | `deepagents` | GLM-4.6 | no | 174 / 200 | 87.0 % |
 | 2026-05-13 | `deepagents` | Claude Haiku 4.5 | yes (built-in) | 177 / 200 | 88.5 % |
