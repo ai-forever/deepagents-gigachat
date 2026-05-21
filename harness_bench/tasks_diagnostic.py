@@ -128,8 +128,9 @@ TASK_206 = Task(
         "  - пользователей из стран из blocked_countries.txt исключить;\n"
         "  - агрегировать сумму paid_usd и количество paid_orders по user_id;\n"
         "  - включать только пользователей с paid_usd >= 200;\n"
-        "  - paid_usd округлять до 2 знаков, сортировать по paid_usd desc, при"
-        "    равенстве по user_id asc."
+        "  - paid_usd форматировать как строку с ровно двумя знаками после\n"
+        "    точки (например '320.00', а не '320.0'); сортировать по paid_usd\n"
+        "    desc, при равенстве по user_id asc."
     ),
     setup_files={
         "customers.csv": _CUSTOMERS_206,
@@ -573,7 +574,10 @@ TASK_213 = Task(
     prompt=(
         "Просканируй все .md файлы в каталоге docs и найди URL (http/https).\n"
         "Сформируй два артефакта:\n"
-        "  1) domains.json — объект domain->count (сколько раз домен встретился);\n"
+        "  1) domains.json — объект domain->count (сколько раз домен встретился).\n"
+        "     domain = netloc из urllib.parse.urlparse, то есть host вместе с\n"
+        "     портом если он указан: для 'http://localhost:3000/dev' domain ==\n"
+        "     'localhost:3000', а не 'localhost';\n"
         "  2) broken_links.txt — по одной ссылке в строке для URL, которые\n"
         "     считаются проблемными: scheme == http ИЛИ домен содержит localhost.\n"
         "Для broken_links.txt порядок строк не важен."
@@ -689,7 +693,11 @@ TASK_215 = Task(
         "      ...\n"
         "      ## FIXME\n"
         "      - <path>:<line> <text>\n"
-        "Секции и порядок строк внутри каждой секции — по path asc, затем line asc."
+        "    где <text> — содержимое комментария начиная с маркера TODO:/FIXME:\n"
+        "    (то есть префикс сохраняется). Пример строки:\n"
+        "      - src/a.py:2 TODO: refactor\n"
+        "Секции и порядок строк внутри каждой секции — по path asc, затем line asc.\n"
+        "Между секциями ровно одна пустая строка."
     ),
     setup_files=_SRC_215,
     gold_files={

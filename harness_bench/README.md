@@ -1,6 +1,6 @@
 # harness_bench
 
-A small in-tree benchmark of **200 file-operation tasks** used to drive
+A small in-tree benchmark of **231 file-operation tasks** used to drive
 `deepagents` + `langchain-gigachat` (with this repository's
 [`HarnessProfile`](../deepagents_gigachat/harness_profile.py)) and see how
 well the model handles common operations: file creation, code edits,
@@ -15,7 +15,9 @@ pytest, etc.
 | `tasks_extra.py` | Tasks 31–60: second wave (multi-file refactors, dedupe, log filtering, CSV ↔ markdown conversions). |
 | `tasks_more.py` | Tasks 61–100: third wave (.env edits, nested JSON, dataclasses, simple regex extraction, INI/TOML/YAML stubs, CSV row splitting). |
 | `tasks_hard.py` | Tasks 101–150: harder wave (CSV/Excel/SQLite aggregates, JSON/JSONL, YAML/INI/TOML, Python implementation + pytest, multi-file `grep`, Apache log parsing). |
-| `tasks_extreme.py` | Tasks 151–200: hardest wave (composite pipelines, archives, project-wide refactors, algorithms with pytest, statistics, XML/markdown, three-way joins). |
+| `tasks_extreme.py` | Tasks 151–205: hardest wave (composite pipelines, archives, project-wide refactors, algorithms with pytest, statistics, XML/markdown, three-way joins). |
+| `tasks_diagnostic.py` | Tasks 206–221: diagnostic wave (paid-revenue reconciliation, inventory anomalies, pricing API migration, latency reconstruction, tar+hash manifests, interval merge, config precedence, markdown link audit, data-quality reports, TODO/FIXME triage, category rollups, email extraction, runtime config, SQL leaderboards, import migrations, log-level summaries). |
+| `tasks_memory.py` | Tasks 222–231: memory wave (read/write/forget/refuse in `MEMORY.md`; auxiliary deliverables like `LICENSE`, `requirements-dev.txt`, `bio.txt`, `profile.json`). Exercises the agent's memory-discipline rather than file I/O. |
 | `verifiers.py` | Helpers for writing verifiers: `file_exists`, `file_contains`, `file_lines_equal`, `file_matches_regex`, `json_file_has`, `python_runs`, `python_callable_returns`, `pytest_passes`, `xlsx_cell_equals`, `sqlite_query_returns`, `all_of`, etc. |
 | `core.py` | `Task` (dataclass) and `VerifyResult`. Supports `setup_callback`/`gold_callback` hooks for binary fixtures (xlsx, sqlite, zip, tar). |
 | `runner.py` | Runs a task inside an isolated temporary directory backed by `LocalShellBackend(virtual_mode=True)`, with optional `--concurrency` via a thread pool. |
@@ -32,7 +34,7 @@ that directory as its `root_dir`. The agent only sees those files —
 for a trusted local environment). After the agent stops, the per-task
 verifier inspects the workspace.
 
-## Task categories (200 in total)
+## Task categories (231 in total)
 
 - **File creation** (incl. 1–5, 29, 44, 46, 89, 99): `hello.py`,
   `data.json`, `src/utils.py`, `numbers.txt`, `greeting.py`, `.gitignore`,
@@ -48,35 +50,42 @@ verifier inspects the workspace.
   out `TODO` lines, line counts, sums, sorts, dedupe, percentiles,
   rolling averages, histograms, pivot tables, z-score outliers.
 - **Refactoring** (incl. 19, 20, 24, 31, 42, 45, 50, 56, 74, 80, 94,
-  162–166, 192): removing a deprecated function, moving a function
-  between files, headers, multi-file renames, extracting constants into
-  a module, splitting a module by class, converting to `@dataclass`,
-  project-wide import rewrites.
-- **Filesystem operations** (incl. 21–23, 30, 48, 60, 159–161, 198):
-  rename, delete, append, copyright headers, gzip, zip create/extract,
-  tar extract, rename a directory.
+  162–166, 192, 208, 220): removing a deprecated function, moving a
+  function between files, headers, multi-file renames, extracting
+  constants into a module, splitting a module by class, converting to
+  `@dataclass`, project-wide import rewrites.
+- **Filesystem operations** (incl. 21–23, 30, 48, 60, 159–161, 198,
+  210): rename, delete, append, copyright headers, gzip, zip
+  create/extract, tar extract, rename a directory, tar manifests with
+  hashes.
 - **JSON / config** (incl. 26–28, 49, 54–55, 61–63, 68–70, 91, 115–122,
-  185, 197): adding a key, bumping a dependency, CSV ↔ JSON, CSV ↔
-  TSV, conftest fixtures, swapping CSV columns, nested JSON edits,
-  YAML/INI/TOML edits, YAML front-matter parsing.
+  185, 197, 212, 217, 218): adding a key, bumping a dependency, CSV ↔
+  JSON, CSV ↔ TSV, conftest fixtures, swapping CSV columns, nested JSON
+  edits, YAML/INI/TOML edits, YAML front-matter parsing, merging config
+  precedence, building runtime config, email extraction.
 - **Python implementation + pytest** (incl. 125–134, 167–174,
-  193–195, 200): `fib`, `factorial`, `is_palindrome`, `count_vowels`,
-  `quicksort`, `binary_search`, `is_balanced`, `LRUCache`, `LinkedList`,
-  `TreeNode + inorder`, `is_anagram`, `two_sum`, `memoize`, `Timer`
-  context manager, `MyRange` iterator, `PriorityQueue`.
-- **Multi-file `grep`/`glob` search** (incl. 135–144, 186–187):
-  counting `import`/`def`/`assert` across a project tree, listing
-  files containing a marker, finding duplicates, dead-function
-  detection.
+  193–195, 200, 211): `fib`, `factorial`, `is_palindrome`,
+  `count_vowels`, `quicksort`, `binary_search`, `is_balanced`,
+  `LRUCache`, `LinkedList`, `TreeNode + inorder`, `is_anagram`,
+  `two_sum`, `memoize`, `Timer` context manager, `MyRange` iterator,
+  `PriorityQueue`, `merge_intervals`.
+- **Multi-file `grep`/`glob` search** (incl. 135–144, 186–187, 213,
+  215): counting `import`/`def`/`assert` across a project tree,
+  listing files containing a marker, finding duplicates, dead-function
+  detection, markdown link audit, TODO/FIXME triage.
 - **Excel (xlsx)** (incl. 111–113, 148, 158, 196): cell extraction,
   column sums, cell updates, CSV ↔ xlsx, per-sheet split.
-- **SQLite** (incl. 123–124, 149, 191, 199): counts, sums, JOIN +
-  CSV export, JSON export, filtered queries.
-- **Apache log parsing** (incl. 145–147, 189): top IP, 5xx count,
-  status filter, hourly aggregation.
-- **Composite pipelines** (incl. 151–158, 188–190): CSV → JSON
-  aggregates with filter+groupby+sort, SQLite JOIN → JSON, xlsx →
-  markdown report, three-way joins, multi-CSV concat + dedupe.
+- **SQLite** (incl. 123–124, 149, 191, 199, 207, 219): counts, sums,
+  JOIN + CSV export, JSON export, filtered queries, inventory
+  anomalies, paid leaderboards.
+- **Apache log parsing** (incl. 145–147, 189, 209, 221): top IP, 5xx
+  count, status filter, hourly aggregation, request-latency
+  reconstruction, INFO/WARN/ERROR summaries.
+- **Composite pipelines** (incl. 151–158, 188–190, 206, 214, 216):
+  CSV → JSON aggregates with filter+groupby+sort, SQLite JOIN → JSON,
+  xlsx → markdown report, three-way joins, multi-CSV concat + dedupe,
+  paid-revenue reconciliation, customer data-quality reports, category
+  revenue rollups.
 
 Every verifier is mechanical — no LLM-as-judge: exact content checks,
 regex matches, line lists, JSON parsing, running `python file.py` and
@@ -111,7 +120,7 @@ uv run python -m harness_bench list
 ### Run the benchmark
 
 ```bash
-# all 200 tasks in sequence
+# all 231 tasks in sequence
 uv run python -m harness_bench run
 
 # parallel run (5 tasks at a time — each in its own workspace)
@@ -126,7 +135,7 @@ uv run python -m harness_bench run \
 uv run python -m harness_bench run --task task_20_move_function --keep
 ```
 
-At the end the runner prints `Passed: N/200` and a one-line summary for
+At the end the runner prints `Passed: N/231` and a one-line summary for
 every failed task.
 
 ### Run against another model
@@ -184,8 +193,6 @@ OpenRouter models). The `free-code` rows use Claude Code CLI v2.1.119.
 | 2026-05-18 | `deepagents` | GigaChat-3-Ultra (IFT, deepagents 0.5.7) | yes (v4) | 169 / 200 | 84.5 % |
 | 2026-05-19 | `deepagents` | GigaChat-3-Ultra (IFT, deepagents 0.6.2) | yes (v7) | 169 / 200 | 84.5 % |
 | 2026-05-19 | `deepagents` | GigaChat-3-Ultra (IFT, deepagents 0.6.2) | yes (v8) | 177 / 200 | 88.5 % |
-| 2026-05-20 | `deepagents` | GigaChat-3-Ultra:32.3.18.5 (IFT, deepagents 0.6.2) | yes (v9) | 176–182 / 200 (5 runs: 176, 182, 177, 181, 179 — avg 179) | 88–91 % |
-| 2026-05-20 | `deepagents` | **GigaChat-3-Ultra:32.3.7.3** (PROM, deepagents 0.6.2) | **yes (v9)** | **185 / 200** | **92.5 %** |
 | 2026-05-14 | `deepagents` | DeepSeek V4 Flash | no | 165 / 200 | 82.5 % |
 | 2026-05-14 | `pi-mono` | GPT-4o-mini | ? (run by colleague) | 166 / 200 | 83.0 % |
 | 2026-05-13 | `deepagents` | GPT-4.1-mini | no | 168 / 200 | 84.0 % |
@@ -203,12 +210,100 @@ OpenRouter models). The `free-code` rows use Claude Code CLI v2.1.119.
 | 2026-05-20 | `qwen-code` 0.15.11 | **qwen3-coder-next** (via OpenRouter, `-y`) | yes (built-in) | **207 / 221** | **93.7 %** |
 | 2026-05-20 | `deepagents` | GigaChat-3-Ultra:32.3.18.5 (IFT, deepagents 0.6.2) | yes (v9) | 186 / 221 | 84.2 % |
 | 2026-05-20 | `deepagents` | **GigaChat-3-Ultra:32.3.7.3** (PROM, deepagents 0.6.2) | **yes (v9)** | **188 / 221** | **85.1 %** |
+| 2026-05-21 | `deepagents` | GigaChat-3-Ultra (PROM, deepagents 0.6.2 + async `ShellSafetyMiddleware`) | yes (v9) | 185 / 221 | 83.7 % |
+| 2026-05-21 | `deepagents` | GigaChat-3-Ultra (PROM, deepagents 0.6.2) | yes (v8) | 189 / 221 | 85.5 % |
+| 2026-05-21 | `free-code` 2.1.119 | **Claude Opus 4.7** | yes (built-in + AGENTS.md inject) | **230 / 231** (231 after `task_175` fix) | **99.6 %** |
+
+The 2026-05-21 Opus run on the extended 231-task set surfaced 12
+initial failures. All of them turned out to be artifacts of the
+bench (ambiguous prompts, an over-strict verifier, an
+adapter/convention mismatch) rather than real model errors; once
+those were corrected, Opus's measured score rose to 230/231
+(99.6 %) on the second full run, and the one remaining failure
+(`task_175_csv_stats_basic`, contradictory "median целое
+число" instruction) was fixed and verified individually after the
+run. Effective ceiling on this bench for Opus is 231/231 (100 %).
+
+Detailed log of what was wrong vs. what got fixed:
+
+1. **Adapter mismatch — `tasks_memory.py` (8 fails fixed)**.
+   The memory block (222-231) depends on the `AGENTS.md` →
+   `MEMORY.md` convention used by `deepagents` / Codex CLI /
+   Cursor. The free-code CLI ships its own host-side memory at
+   `~/.claude/projects/...` and does NOT auto-load workspace
+   `AGENTS.md`, so the agent never saw the memory instructions and
+   silently no-op'd most memory tasks. `runner_cli.py` now detects
+   a Claude-Code-style CLI and injects the workspace `AGENTS.md`
+   via `--append-system-prompt`; with the inject, memory tasks
+   pass.
+
+2. **Ambiguous prompts (3 fails fixed)**. `task_213` now states
+   `domain == urlparse.netloc` (host+port, so `localhost:3000`
+   rather than `localhost`); `task_215` shows an example
+   confirming `<text>` keeps the `TODO:`/`FIXME:` marker;
+   `task_206` now requires `paid_usd` formatted with exactly two
+   decimal places (`320.00`, not `320.0`). All three were
+   prompt-only failures, not model errors.
+
+3. **Verifier bug — `task_231` (1 fail fixed)**. The README-wording
+   regex only accepted first-person "работаю с Anthropic", so
+   third-person "Дмитрий работает с Anthropic" (which is what Opus
+   correctly wrote, per the user's framing) was rejected.
+   Broadened the regex to `работ\w*\s+с`. Same task's secret-leak
+   scan also ignored `.free-code-logs/` and other dot-dirs, since
+   those are adapter debug captures, not artifacts the agent
+   produced.
+
+4. **Contradictory prompt — `task_175` (1 fail fixed)**. The prompt
+   said "median, min, max — целые числа", but the gold answer
+   used `statistics.median` which returns 22.5 for the 20-element
+   dataset. Opus correctly read the prompt and rounded to 22 →
+   verifier mismatch. Prompt now spells out
+   `median = (a+b)/2 for even-length, not rounded`.
+
+GigaChat-3-Ultra has not been re-measured on the 231-task set with
+these fixes applied; the /221 rows above are the latest available
+data for it. With the same fixes a re-measurement would likely
+move it up by a few points too, since v9 also failed `task_213`
+and `task_215` on the same ambiguities.
+
+### Superseded runs (kept for context, not counted)
+
+These configurations have been re-measured on the current 221-task set;
+the older /200 numbers are kept below for traceability but should not be
+used for cross-model comparison.
+
+| Date | Runner | Model | Harness adapt | Result | % | Superseded by |
+| --- | --- | --- | --- | --- | --- | --- |
+| 2026-05-20 | `deepagents` | GigaChat-3-Ultra:32.3.18.5 (IFT, deepagents 0.6.2) | yes (v9) | 176–182 / 200 (5 runs, avg 179) | 88–91 % | 186 / 221 row above |
+| 2026-05-20 | `deepagents` | GigaChat-3-Ultra:32.3.7.3 (PROM, deepagents 0.6.2) | yes (v9) | 185 / 200 | 92.5 % | 188 / 221 row above |
 
 The GigaChat-3-Ultra row with `yes (v9)` is the current pinned
 configuration of this repository on the latest `deepagents` 0.6.x stack
 (also langchain 1.3, langgraph 1.2). It extends v8 with two new
 defensive middleware that fired on tasks outside this bench but are
 neutral here within run-to-run noise:
+
+The 2026-05-21 row re-runs the same PROM config after adding an
+`awrap_tool_call` hook to `ShellSafetyMiddleware` (so the safety check
+also fires on the async tool-runner path that langgraph 1.2.x exercises
+when the agent dispatches tool calls through `await`). The −3 delta
+from the 2026-05-20 PROM run sits inside the documented ±5 noise band:
+the new async path is exercised on every `execute` call but does not
+itself reject anything that the sync path wouldn't have rejected, and
+no failures in the log point at it. Adopting it as part of v9.
+
+The second 2026-05-21 row is a one-off **v8 vs v9 head-to-head on the
+current 221-task set**, run by rolling `deepagents_gigachat/` back to
+commit `d779dc2` and rebuilding the wheel (everything else — bench
+tasks, deps, GigaChat PROM endpoint — unchanged). v8 scored **189/221
+(85.5 %)** against v9's 185–188/221 on the same set. Both numbers sit
+inside the documented ±5 noise band of a single run, so it is **not**
+evidence that v8 is better than v9 on harness_bench, only that the two
+profiles are statistically indistinguishable on this suite. The
+defensive middleware added in v9 (`ShellSafetyMiddleware`,
+`ToolContractMiddleware`) earn their place on tasks outside this bench
+— see notes below — and on harness_bench they are at worst neutral.
 
 - **`ShellSafetyMiddleware`** rejects obviously dangerous shell
   patterns (`rm -rf /`, unscoped `chmod 777`, `curl … | sh`, etc.)
@@ -281,9 +376,10 @@ model-specific adapt.
 ## Adding a task
 
 1. In one of the task modules (`tasks.py`, `tasks_extra.py`,
-   `tasks_more.py`, `tasks_hard.py`, `tasks_extreme.py` — pick the one
-   that fits the wave / difficulty) describe a `Task(...)` — id, prompt,
-   `setup_files`, `gold_files`, `verifier`.
+   `tasks_more.py`, `tasks_hard.py`, `tasks_extreme.py`,
+   `tasks_diagnostic.py` — pick the one that fits the wave / difficulty)
+   describe a `Task(...)` — id, prompt, `setup_files`, `gold_files`,
+   `verifier`.
 2. Wire it into the corresponding module's `*_TASKS` list (it'll be
    pulled into `ALL_TASKS` automatically via `tasks.py`).
 3. Run `python -m harness_bench verify-gold --task <new_id>` to make

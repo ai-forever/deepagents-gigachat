@@ -64,7 +64,11 @@ def build_agent(
         api_key=os.getenv("OPENROUTER_API_KEY"),
         timeout=600,
     )
-    agent = create_deep_agent(model=model, backend=backend)
+    # Memory tasks (222–231) ship an AGENTS.md fixture; pre-existing 221
+    # tasks do not. `LocalShellBackend(virtual_mode=True)` maps
+    # `/AGENTS.md` to `<workspace>/AGENTS.md`.
+    memory_sources = ["/AGENTS.md"] if (workspace / "AGENTS.md").exists() else None
+    agent = create_deep_agent(model=model, backend=backend, memory=memory_sources)
     return agent.with_config({"recursion_limit": recursion_limit})
 
 
@@ -78,9 +82,7 @@ def run_task(
     workspace_keepalive: TemporaryDirectory | None = None
     try:
         if keep_workspace:
-            workspace_path = Path(
-                __import__("tempfile").mkdtemp(prefix=f"hb_or_{task.id}_")
-            )
+            workspace_path = Path(__import__("tempfile").mkdtemp(prefix=f"hb_or_{task.id}_"))
         else:
             workspace_keepalive = TemporaryDirectory(prefix=f"hb_or_{task.id}_")
             workspace_path = Path(workspace_keepalive.name)
@@ -141,9 +143,7 @@ def run_all(
             )
             results.append(run)
             status = "PASS" if run.passed else "FAIL"
-            print(
-                f"  [{status}] {run.elapsed_seconds:5.1f}s — {_one_line_detail(run)}"
-            )
+            print(f"  [{status}] {run.elapsed_seconds:5.1f}s — {_one_line_detail(run)}")
             if keep_workspace and run.workspace:
                 print(f"  workspace: {run.workspace}")
         return results

@@ -100,6 +100,25 @@ class ShellSafetyMiddleware(AgentMiddleware):
             name="execute",
         )
 
+    async def awrap_tool_call(self, request: Any, handler: Any) -> ToolMessage:
+        tool_call = getattr(request, "tool_call", {}) or {}
+        tool_name = tool_call.get("name") or getattr(getattr(request, "tool", None), "name", "")
+        if tool_name != "execute":
+            return await handler(request)
+        args = tool_call.get("args", {}) or {}
+        command = args.get("command", "")
+        reason = self._unsafe_execute_reason(command if isinstance(command, str) else str(command))
+        if not reason:
+            return await handler(request)
+        return ToolMessage(
+            content=(
+                "[SHELL-SAFETY] blocked unsafe execute command: "
+                f"{reason} Do not retry the same command shape."
+            ),
+            tool_call_id=tool_call.get("id", ""),
+            name="execute",
+        )
+
 
 class LoopBreakerMiddleware(AgentMiddleware):
     """Detect agent loops and repeated failed command families.

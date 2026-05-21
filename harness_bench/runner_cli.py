@@ -247,10 +247,24 @@ def run_task_cli(
     a fresh per-task temp workspace so the agent starts from clean fixtures.
     """
     workspace_keepalive: TemporaryDirectory | None = None
-    argv = shlex.split(cli_command) + [task.prompt]
+    base_argv = shlex.split(cli_command)
     last_result: subprocess.CompletedProcess[str] | None = None
     last_transient_excerpt: str | None = None
     started = time.monotonic()
+
+    # AGENTS.md is the runtime-tool / memory-discipline convention used by
+    # `deepagents` (and Codex CLI / Cursor): the file lives in the workspace
+    # and is auto-read into the system prompt. Claude Code (`free-code`)
+    # uses its own host-side memory at ~/.claude/projects/... and does NOT
+    # auto-discover AGENTS.md, so tasks that depend on it (e.g.
+    # `tasks_memory.py`) fail by design. When we detect a Claude-Code-like
+    # CLI, inject the workspace AGENTS.md via `--append-system-prompt` so
+    # the agent sees the same ambient instructions an AGENTS.md-native
+    # runtime would.
+    inject_agents_md = any(
+        "free-code" in arg or arg.endswith("/claude") or arg == "claude"
+        for arg in base_argv[:2]
+    )
 
     try:
         for attempt in range(transient_retries + 1):
@@ -262,6 +276,15 @@ def run_task_cli(
                 workspace_path = Path(workspace_keepalive.name)
 
             task.setup(workspace_path)
+
+            argv = list(base_argv)
+            agents_md = workspace_path / "AGENTS.md"
+            if inject_agents_md and agents_md.exists():
+                argv += [
+                    "--append-system-prompt",
+                    agents_md.read_text(encoding="utf-8"),
+                ]
+            argv += [task.prompt]
 
             try:
                 last_result = subprocess.run(  # noqa: S603 — trusted local benchmark

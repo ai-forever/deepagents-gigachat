@@ -73,7 +73,12 @@ def build_agent(workspace: Path, *, recursion_limit: int = 80) -> Any:
         retry_backoff_factor=1.0,
         retry_on_status_codes=(403, 429, 500, 502, 503, 504),
     )
-    agent = create_deep_agent(model=model, backend=backend)
+    # Memory tasks (222–231) ship an AGENTS.md fixture; pre-existing 221
+    # tasks do not, so MemoryMiddleware is wired in only when the fixture is
+    # present. `LocalShellBackend(virtual_mode=True)` maps `/AGENTS.md` to
+    # `<workspace>/AGENTS.md`.
+    memory_sources = ["/AGENTS.md"] if (workspace / "AGENTS.md").exists() else None
+    agent = create_deep_agent(model=model, backend=backend, memory=memory_sources)
     return agent.with_config({"recursion_limit": recursion_limit})
 
 
@@ -105,9 +110,7 @@ def run_task(
     workspace_keepalive: TemporaryDirectory | None = None
     try:
         if keep_workspace:
-            workspace_path = Path(
-                __import__("tempfile").mkdtemp(prefix=f"hb_{task.id}_")
-            )
+            workspace_path = Path(__import__("tempfile").mkdtemp(prefix=f"hb_{task.id}_"))
         else:
             workspace_keepalive = TemporaryDirectory(prefix=f"hb_{task.id}_")
             workspace_path = Path(workspace_keepalive.name)

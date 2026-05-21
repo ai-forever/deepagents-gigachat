@@ -24,6 +24,7 @@ from harness_bench.tasks_diagnostic import DIAGNOSTIC_TASKS
 from harness_bench.tasks_extra import EXTRA_TASKS
 from harness_bench.tasks_extreme import EXTREME_TASKS
 from harness_bench.tasks_hard import HARD_TASKS
+from harness_bench.tasks_memory import MEMORY_TASKS
 from harness_bench.tasks_more import MORE_TASKS
 from harness_bench.verifiers import (
     all_of,
@@ -83,7 +84,7 @@ _SLUGIFY_GOLD = (
     "\n"
     "\n"
     "def slugify(text: str) -> str:\n"
-    '    text = text.lower()\n'
+    "    text = text.lower()\n"
     '    text = re.sub(r"\\s+", "-", text)\n'
     '    text = re.sub(r"[^a-z0-9-]", "", text)\n'
     '    return text.strip("-")\n'
@@ -123,9 +124,7 @@ TASK_04 = Task(
     ),
     setup_files={},
     gold_files={"numbers.txt": "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n"},
-    verifier=file_lines_equal(
-        "numbers.txt", ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
-    ),
+    verifier=file_lines_equal("numbers.txt", ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]),
 )
 
 
@@ -143,10 +142,7 @@ TASK_05 = Task(
     ),
     setup_files={},
     gold_files={
-        "greeting.py": (
-            "def greet(name: str) -> str:\n"
-            '    return f"Привет, {name}!"\n'
-        ),
+        "greeting.py": ('def greet(name: str) -> str:\n    return f"Привет, {name}!"\n'),
     },
     verifier=python_callable_returns("greeting.py", "mod.greet('Аня')", "Привет, Аня!"),
 )
@@ -235,12 +231,7 @@ TASK_09 = Task(
 # ---------------------------------------------------------------------------
 # 10. bump_pyproject_version
 # ---------------------------------------------------------------------------
-_PYPROJECT_INITIAL = (
-    "[project]\n"
-    'name = "demo"\n'
-    'version = "0.1.0"\n'
-    'requires-python = ">=3.12"\n'
-)
+_PYPROJECT_INITIAL = '[project]\nname = "demo"\nversion = "0.1.0"\nrequires-python = ">=3.12"\n'
 _PYPROJECT_GOLD = _PYPROJECT_INITIAL.replace("0.1.0", "0.2.0")
 
 TASK_10 = Task(
@@ -428,9 +419,7 @@ TASK_18 = Task(
     setup_files={"calc.py": "def calculate(x):\n    return x * 2\n"},
     gold_files={
         "calc.py": (
-            "def calculate(x):\n"
-            '    """Возвращает удвоенное значение x."""\n'
-            "    return x * 2\n"
+            'def calculate(x):\n    """Возвращает удвоенное значение x."""\n    return x * 2\n'
         ),
     },
     verifier=all_of(
@@ -459,14 +448,7 @@ _MOD_INITIAL = (
     "def helper():\n"
     "    return 42\n"
 )
-_MOD_GOLD = (
-    "def new_func():\n"
-    "    return 'new'\n"
-    "\n"
-    "\n"
-    "def helper():\n"
-    "    return 42\n"
-)
+_MOD_GOLD = "def new_func():\n    return 'new'\n\n\ndef helper():\n    return 42\n"
 
 TASK_19 = Task(
     id="task_19_remove_old_func",
@@ -546,10 +528,7 @@ TASK_22 = Task(
     id="task_22_delete_file",
     name="Delete obsolete.py",
     tags=("edit", "filesystem", "easy"),
-    prompt=(
-        "Удали файл obsolete.py из текущей директории. Файл keep.py трогать"
-        " не нужно."
-    ),
+    prompt=("Удали файл obsolete.py из текущей директории. Файл keep.py трогать не нужно."),
     setup_files={
         "obsolete.py": "# this file is obsolete\n",
         "keep.py": "# keep me\n",
@@ -575,9 +554,7 @@ TASK_23 = Task(
         " Все существующие строки сохрани в исходном порядке."
     ),
     setup_files={"log.txt": "2026-05-10: started\n2026-05-11: tested\n"},
-    gold_files={
-        "log.txt": "2026-05-10: started\n2026-05-11: tested\n2026-05-12: deployed\n"
-    },
+    gold_files={"log.txt": "2026-05-10: started\n2026-05-11: tested\n2026-05-12: deployed\n"},
     verifier=file_lines_equal(
         "log.txt",
         [
@@ -649,9 +626,7 @@ TASK_26 = Task(
         " Файл должен остаться валидным JSON."
     ),
     setup_files={"config.json": '{"host": "localhost", "debug": false}\n'},
-    gold_files={
-        "config.json": '{"host": "localhost", "debug": false, "port": 8080}\n'
-    },
+    gold_files={"config.json": '{"host": "localhost", "debug": false, "port": 8080}\n'},
     verifier=json_file_has("config.json", host="localhost", debug=False, port=8080),
 )
 
@@ -730,7 +705,9 @@ def _verify_task_28(ws: Path) -> VerifyResult:
         actual_age = row.get("age")
         # Accept either string or int representation of age.
         if actual_age not in (age, str(age)):
-            return VerifyResult(False, f"age for {name} is {actual_age!r}, expected {age} or '{age}'")
+            return VerifyResult(
+                False, f"age for {name} is {actual_age!r}, expected {age} or '{age}'"
+            )
     return VerifyResult(True, "users.json contains the expected records")
 
 
@@ -788,10 +765,7 @@ TASK_30 = Task(
     },
     gold_files={
         "tasks.txt": (
-            "1. Сделать зарядку\n"
-            "2. Позвонить маме\n"
-            "3. Сходить в магазин\n"
-            "4. Купить молоко\n"
+            "1. Сделать зарядку\n2. Позвонить маме\n3. Сходить в магазин\n4. Купить молоко\n"
         ),
     },
     verifier=file_lines_equal(
@@ -842,6 +816,7 @@ ALL_TASKS: list[Task] = [
     *HARD_TASKS,
     *EXTREME_TASKS,
     *DIAGNOSTIC_TASKS,
+    *MEMORY_TASKS,
 ]
 
 _TASK_INDEX: dict[str, Task] = {t.id: t for t in ALL_TASKS}
@@ -852,4 +827,6 @@ def get_task(task_id: str) -> Task:
     try:
         return _TASK_INDEX[task_id]
     except KeyError as exc:
-        raise KeyError(f"Unknown task id: {task_id!r}. Run `python -m harness_bench list`.") from exc
+        raise KeyError(
+            f"Unknown task id: {task_id!r}. Run `python -m harness_bench list`."
+        ) from exc

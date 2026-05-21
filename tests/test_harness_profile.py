@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 from importlib.metadata import entry_points
 from typing import Any
+
+from langchain_core.messages import ToolMessage
 
 from deepagents.profiles.harness.harness_profiles import _get_harness_profile
 
 from deepagents_gigachat import (
+    ShellSafetyMiddleware,
     ToolContractMiddleware,
     build_system_prompt,
     harness_profile,
@@ -83,3 +87,28 @@ def test_register_harness_can_use_external_runtime_profile(monkeypatch: Any) -> 
     assert "read_file once" not in profile.base_system_prompt
     assert "write_file" not in profile.tool_description_overrides
     assert any(isinstance(m, ToolContractMiddleware) for m in profile.extra_middleware)
+
+
+def test_shell_safety_middleware_supports_async_tool_calls() -> None:
+    middleware = ShellSafetyMiddleware()
+    request = type(
+        "Request",
+        (),
+        {
+            "tool_call": {
+                "id": "call_1",
+                "name": "execute",
+                "args": {"command": 'python -c "x=0; for v in [1]: x += v"'},
+            }
+        },
+    )()
+
+    async def handler(_request: Any) -> ToolMessage:
+        raise AssertionError("unsafe shell command should be blocked before handler")
+
+    result = asyncio.run(middleware.awrap_tool_call(request, handler))
+
+    assert isinstance(result, ToolMessage)
+    assert result.name == "execute"
+    assert result.tool_call_id == "call_1"
+    assert "[SHELL-SAFETY]" in result.content
