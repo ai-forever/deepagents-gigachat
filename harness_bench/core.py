@@ -57,7 +57,7 @@ class Task:
         for rel, content in self.setup_files.items():
             target = workspace / rel
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content)
+            target.write_text(content, encoding="utf-8")
         if self.setup_callback is not None:
             self.setup_callback(workspace)
 
@@ -79,7 +79,7 @@ class Task:
                     parent = parent.parent
             else:
                 target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text(content)
+                target.write_text(content, encoding="utf-8")
         if self.gold_callback is not None:
             self.gold_callback(workspace)
 

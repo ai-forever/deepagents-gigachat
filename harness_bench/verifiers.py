@@ -7,6 +7,7 @@ can be composed via `all_of(...)`.
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
 import subprocess
@@ -15,6 +16,12 @@ from pathlib import Path
 from typing import Any
 
 from harness_bench.core import Verifier, VerifyResult
+
+_UTF8_SUBPROCESS_ENV = {
+    **os.environ,
+    "PYTHONUTF8": "1",
+    "PYTHONIOENCODING": "utf-8",
+}
 
 
 def file_exists(rel: str) -> Verifier:
@@ -47,7 +54,7 @@ def file_text_equals(rel: str, expected: str, *, strip: bool = True) -> Verifier
         p = ws / rel
         if not p.exists():
             return VerifyResult(False, f"{rel} missing")
-        actual = p.read_text()
+        actual = p.read_text(encoding="utf-8")
         a, e = (actual.strip(), expected.strip()) if strip else (actual, expected)
         if a == e:
             return VerifyResult(True, f"{rel} matches expected content")
@@ -63,7 +70,7 @@ def file_contains(rel: str, *needles: str) -> Verifier:
         p = ws / rel
         if not p.exists():
             return VerifyResult(False, f"{rel} missing")
-        text = p.read_text()
+        text = p.read_text(encoding="utf-8")
         missing = [n for n in needles if n not in text]
         if missing:
             return VerifyResult(False, f"{rel} missing substrings: {missing!r}")
@@ -79,7 +86,7 @@ def file_not_contains(rel: str, *needles: str) -> Verifier:
         p = ws / rel
         if not p.exists():
             return VerifyResult(False, f"{rel} missing")
-        text = p.read_text()
+        text = p.read_text(encoding="utf-8")
         present = [n for n in needles if n in text]
         if present:
             return VerifyResult(False, f"{rel} still contains forbidden: {present!r}")
@@ -97,7 +104,7 @@ def file_matches_regex(rel: str, pattern: str, *, flags: int = re.MULTILINE) -> 
         p = ws / rel
         if not p.exists():
             return VerifyResult(False, f"{rel} missing")
-        if rx.search(p.read_text()):
+        if rx.search(p.read_text(encoding="utf-8")):
             return VerifyResult(True, f"{rel} matches /{pattern}/")
         return VerifyResult(False, f"{rel} does not match /{pattern}/")
 
@@ -111,7 +118,7 @@ def file_lines_equal(rel: str, expected_lines: list[str]) -> Verifier:
         p = ws / rel
         if not p.exists():
             return VerifyResult(False, f"{rel} missing")
-        actual = [line for line in p.read_text().splitlines() if line.strip() != ""]
+        actual = [line for line in p.read_text(encoding="utf-8").splitlines() if line.strip() != ""]
         if actual == expected_lines:
             return VerifyResult(True, f"{rel} lines match")
         return VerifyResult(
@@ -130,7 +137,7 @@ def json_file_has(rel: str, **expected_pairs: Any) -> Verifier:
         if not p.exists():
             return VerifyResult(False, f"{rel} missing")
         try:
-            data = json.loads(p.read_text())
+            data = json.loads(p.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
             return VerifyResult(False, f"{rel} invalid JSON: {exc}")
         if not isinstance(data, dict):
@@ -155,7 +162,7 @@ def json_file_matches(rel: str, expected: Any) -> Verifier:
         if not p.exists():
             return VerifyResult(False, f"{rel} missing")
         try:
-            data = json.loads(p.read_text())
+            data = json.loads(p.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
             return VerifyResult(False, f"{rel} invalid JSON: {exc}")
         if data == expected:
@@ -185,6 +192,7 @@ def python_runs(
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
+                env=_UTF8_SUBPROCESS_ENV,
                 timeout=timeout,
                 check=False,
             )
@@ -233,6 +241,7 @@ def python_callable_returns(rel: str, call_expr: str, expected: Any) -> Verifier
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
+                env=_UTF8_SUBPROCESS_ENV,
                 timeout=20,
                 check=False,
             )
@@ -282,6 +291,7 @@ def pytest_passes(test_dir: str = "tests", *, timeout: int = 60) -> Verifier:
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
+                env=_UTF8_SUBPROCESS_ENV,
                 timeout=timeout,
                 check=False,
             )

@@ -651,7 +651,7 @@ def _verify_task_27(ws: Path) -> VerifyResult:
     if not p.exists():
         return VerifyResult(False, "package.json missing")
     try:
-        data = json.loads(p.read_text())
+        data = json.loads(p.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         return VerifyResult(False, f"package.json invalid JSON: {exc}")
     deps = data.get("dependencies", {})
@@ -691,7 +691,7 @@ def _verify_task_28(ws: Path) -> VerifyResult:
     if not p.exists():
         return VerifyResult(False, "users.json missing")
     try:
-        data = json.loads(p.read_text())
+        data = json.loads(p.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         return VerifyResult(False, f"users.json invalid JSON: {exc}")
     if not isinstance(data, list) or len(data) != 2:

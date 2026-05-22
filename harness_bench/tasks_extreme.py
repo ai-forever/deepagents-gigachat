@@ -74,7 +74,7 @@ def _json_file_matches_loose(rel: str, expected, *, ordered: bool = False):
         if not p.exists():
             return VerifyResult(False, f"{rel} missing")
         try:
-            data = json.loads(p.read_text())
+            data = json.loads(p.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
             return VerifyResult(False, f"{rel} invalid JSON: {exc}")
         if _normalise(data) == _normalise(expected):
@@ -196,7 +196,7 @@ def _verify_task_153(ws: Path) -> VerifyResult:
     p = ws / "report.md"
     if not p.exists():
         return VerifyResult(False, "report.md missing")
-    text = p.read_text()
+    text = p.read_text(encoding="utf-8")
     required = ["| region", "| total", "---", "EU", "US", "APAC", "225", "500", "175"]
     missing = [s for s in required if s not in text]
     if missing:
@@ -301,7 +301,7 @@ def _verify_task_155(ws: Path) -> VerifyResult:
         return VerifyResult(False, "endpoints.csv missing")
     import csv as _csv  # noqa: PLC0415
 
-    rows = list(_csv.DictReader(io.StringIO(p.read_text())))
+    rows = list(_csv.DictReader(io.StringIO(p.read_text(encoding="utf-8"))))
     if not rows:
         return VerifyResult(False, "endpoints.csv empty (no data rows)")
     actual = {r["endpoint"]: int(r["count"]) for r in rows}
@@ -374,8 +374,8 @@ def _verify_task_157(ws: Path) -> VerifyResult:
     p2 = ws / "only_in_b.txt"
     if not p1.exists() or not p2.exists():
         return VerifyResult(False, "only_in_a.txt or only_in_b.txt missing")
-    a = sorted(line.strip() for line in p1.read_text().splitlines() if line.strip())
-    b = sorted(line.strip() for line in p2.read_text().splitlines() if line.strip())
+    a = sorted(line.strip() for line in p1.read_text(encoding="utf-8").splitlines() if line.strip())
+    b = sorted(line.strip() for line in p2.read_text(encoding="utf-8").splitlines() if line.strip())
     if a != _ONLY_A:
         return VerifyResult(False, f"only_in_a.txt {a!r} differs from {_ONLY_A!r}")
     if b != _ONLY_B:
@@ -434,7 +434,7 @@ def _verify_task_158(ws: Path) -> VerifyResult:
         p = ws / fname
         if not p.exists():
             return VerifyResult(False, f"{fname} missing")
-        actual = p.read_text().strip()
+        actual = p.read_text(encoding="utf-8").strip()
         if actual != expected.strip():
             return VerifyResult(False, f"{fname} content differs from expected")
     return VerifyResult(True, "all three CSVs match the corresponding xlsx sheets")
@@ -483,16 +483,16 @@ def _verify_task_159(ws: Path) -> VerifyResult:
         match = next((p for p in candidates if p.exists()), None)
         if match is None:
             return VerifyResult(False, f"extracted/{name} (or extracted/data/{name}) missing")
-        if match.read_text().strip() != content:
-            return VerifyResult(False, f"{match}: content {match.read_text()!r} differs from {content!r}")
+        if match.read_text(encoding="utf-8").strip() != content:
+            return VerifyResult(False, f"{match}: content {match.read_text(encoding="utf-8")!r} differs from {content!r}")
     return VerifyResult(True, "archive.zip extracted to extracted/ with all three files")
 
 
 def _zip_159_gold_callback(ws: Path) -> None:
     (ws / "extracted").mkdir(exist_ok=True)
-    (ws / "extracted" / "alpha.txt").write_text("alpha content\n")
-    (ws / "extracted" / "beta.txt").write_text("beta content\n")
-    (ws / "extracted" / "gamma.txt").write_text("gamma content\n")
+    (ws / "extracted" / "alpha.txt").write_text("alpha content\n", encoding="utf-8")
+    (ws / "extracted" / "beta.txt").write_text("beta content\n", encoding="utf-8")
+    (ws / "extracted" / "gamma.txt").write_text("gamma content\n", encoding="utf-8")
 
 
 TASK_159 = Task(
@@ -516,9 +516,9 @@ TASK_159 = Task(
 
 def _zip_160_setup(ws: Path) -> None:
     (ws / "files").mkdir(exist_ok=True)
-    (ws / "files" / "one.txt").write_text("one\n")
-    (ws / "files" / "two.txt").write_text("two\n")
-    (ws / "files" / "three.txt").write_text("three\n")
+    (ws / "files" / "one.txt").write_text("one\n", encoding="utf-8")
+    (ws / "files" / "two.txt").write_text("two\n", encoding="utf-8")
+    (ws / "files" / "three.txt").write_text("three\n", encoding="utf-8")
 
 
 def _verify_task_160(ws: Path) -> VerifyResult:
@@ -639,7 +639,7 @@ def _verify_task_162(ws: Path) -> VerifyResult:
         p = ws / fname
         if not p.exists():
             return VerifyResult(False, f"{fname} missing")
-        text = p.read_text()
+        text = p.read_text(encoding="utf-8")
         if f"class {cls}" not in text:
             return VerifyResult(False, f"{fname} does not define class {cls}")
         for other_cls in expected.values():
@@ -704,14 +704,14 @@ def _verify_task_163(ws: Path) -> VerifyResult:
     main = ws / "app.py"
     if not consts.exists():
         return VerifyResult(False, "constants.py missing")
-    consts_text = consts.read_text()
+    consts_text = consts.read_text(encoding="utf-8")
     if "MAX_RETRIES" not in consts_text or "5" not in consts_text:
         return VerifyResult(False, f"constants.py missing MAX_RETRIES=5: {consts_text!r}")
     if "DEFAULT_TIMEOUT" not in consts_text or "30" not in consts_text:
         return VerifyResult(False, f"constants.py missing DEFAULT_TIMEOUT=30: {consts_text!r}")
     if not main.exists():
         return VerifyResult(False, "app.py missing")
-    app_text = main.read_text()
+    app_text = main.read_text(encoding="utf-8")
     if "MAX_RETRIES" not in app_text:
         return VerifyResult(False, "app.py does not reference MAX_RETRIES")
     if "DEFAULT_TIMEOUT" not in app_text:
@@ -1343,7 +1343,7 @@ def _verify_task_175(ws: Path) -> VerifyResult:
     if not p.exists():
         return VerifyResult(False, "stats.json missing")
     try:
-        data = json.loads(p.read_text())
+        data = json.loads(p.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         return VerifyResult(False, f"stats.json invalid JSON: {exc}")
     for key, want in _STATS_GOLD.items():
@@ -1396,7 +1396,7 @@ def _verify_task_176(ws: Path) -> VerifyResult:
     p = ws / "rolling.csv"
     if not p.exists():
         return VerifyResult(False, "rolling.csv missing")
-    lines = [line for line in p.read_text().splitlines() if line.strip()]
+    lines = [line for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]
     if not lines or lines[0].strip().lower() not in {"value,rolling_avg", "value, rolling_avg"}:
         return VerifyResult(False, f"rolling.csv header is {lines[0]!r}, expected 'value,rolling_avg'")
     data_lines = lines[1:]
@@ -1528,7 +1528,7 @@ def _verify_task_179(ws: Path) -> VerifyResult:
     p = ws / "outliers.csv"
     if not p.exists():
         return VerifyResult(False, "outliers.csv missing")
-    lines = [line.strip() for line in p.read_text().splitlines() if line.strip()]
+    lines = [line.strip() for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]
     if not lines:
         return VerifyResult(False, "outliers.csv empty")
     if lines[0].lower() not in {"value"}:
@@ -1591,7 +1591,7 @@ def _verify_task_180(ws: Path) -> VerifyResult:
     if not p.exists():
         return VerifyResult(False, "percentiles.json missing")
     try:
-        data = json.loads(p.read_text())
+        data = json.loads(p.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         return VerifyResult(False, f"percentiles.json invalid JSON: {exc}")
     for key, want in _PERC_GOLD.items():
@@ -1669,7 +1669,7 @@ def _verify_task_182(ws: Path) -> VerifyResult:
     if not p.exists():
         return VerifyResult(False, "agg.json missing")
     try:
-        data = json.loads(p.read_text())
+        data = json.loads(p.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         return VerifyResult(False, f"agg.json invalid JSON: {exc}")
     for cat, want in _GA_GOLD.items():
@@ -1727,7 +1727,7 @@ def _verify_task_183(ws: Path) -> VerifyResult:
     if not p.exists():
         return VerifyResult(False, "users.json missing")
     try:
-        data = json.loads(p.read_text())
+        data = json.loads(p.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         return VerifyResult(False, f"users.json invalid JSON: {exc}")
     if not isinstance(data, list) or len(data) != len(_XML_GOLD):
@@ -1792,7 +1792,7 @@ def _verify_task_184(ws: Path) -> VerifyResult:
     p = ws / "toc.md"
     if not p.exists():
         return VerifyResult(False, "toc.md missing")
-    actual = p.read_text().strip()
+    actual = p.read_text(encoding="utf-8").strip()
     expected = _TOC_GOLD.strip()
     if actual == expected:
         return VerifyResult(True, "toc.md matches expected TOC")
@@ -1836,7 +1836,7 @@ def _verify_task_185(ws: Path) -> VerifyResult:
     if not p.exists():
         return VerifyResult(False, "frontmatter.json missing")
     try:
-        data = json.loads(p.read_text())
+        data = json.loads(p.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         return VerifyResult(False, f"frontmatter.json invalid JSON: {exc}")
     if data == _FRONT_GOLD:
@@ -1883,7 +1883,7 @@ def _verify_task_186(ws: Path) -> VerifyResult:
     p = ws / "callers.txt"
     if not p.exists():
         return VerifyResult(False, "callers.txt missing")
-    raw = [line.strip() for line in p.read_text().splitlines() if line.strip()]
+    raw = [line.strip() for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]
     normalised = sorted({line.split("/")[-1] for line in raw})
     if normalised == _USAGE_CALL_FILES:
         return VerifyResult(True, "callers.txt has the two files that call target()")
@@ -1930,7 +1930,7 @@ def _verify_task_187(ws: Path) -> VerifyResult:
     p = ws / "dead.txt"
     if not p.exists():
         return VerifyResult(False, "dead.txt missing")
-    raw = {line.strip() for line in p.read_text().splitlines() if line.strip()}
+    raw = {line.strip() for line in p.read_text(encoding="utf-8").splitlines() if line.strip()}
     if raw == _DEAD_FUNCS:
         return VerifyResult(True, "dead.txt lists the two unused functions")
     return VerifyResult(False, f"dead.txt {sorted(raw)} differs from {sorted(_DEAD_FUNCS)}")
@@ -2014,7 +2014,7 @@ def _verify_task_189(ws: Path) -> VerifyResult:
         return VerifyResult(False, "hourly.csv missing")
     import csv as _csv  # noqa: PLC0415
 
-    rows = list(_csv.DictReader(io.StringIO(p.read_text())))
+    rows = list(_csv.DictReader(io.StringIO(p.read_text(encoding="utf-8"))))
     if not rows:
         return VerifyResult(False, "hourly.csv has no data")
     actual = {r["hour"]: int(r["count"]) for r in rows}
@@ -2352,10 +2352,10 @@ def _verify_task_196(ws: Path) -> VerifyResult:
         return VerifyResult(False, "data.csv missing")
     if not json_p.exists():
         return VerifyResult(False, "data.json missing")
-    if csv_p.read_text().strip() != _MULTI_CSV.strip():
-        return VerifyResult(False, f"data.csv content differs from expected\nGot:\n{csv_p.read_text()}")
+    if csv_p.read_text(encoding="utf-8").strip() != _MULTI_CSV.strip():
+        return VerifyResult(False, f"data.csv content differs from expected\nGot:\n{csv_p.read_text(encoding="utf-8")}")
     try:
-        actual = json.loads(json_p.read_text())
+        actual = json.loads(json_p.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         return VerifyResult(False, f"data.json invalid: {exc}")
     expected_by_name = {r["name"]: r["value"] for r in _MULTI_JSON_DATA}
@@ -2405,7 +2405,7 @@ def _verify_task_197(ws: Path) -> VerifyResult:
     p = ws / "python_posts.txt"
     if not p.exists():
         return VerifyResult(False, "python_posts.txt missing")
-    raw = sorted({line.strip().split("/")[-1] for line in p.read_text().splitlines() if line.strip()})
+    raw = sorted({line.strip().split("/")[-1] for line in p.read_text(encoding="utf-8").splitlines() if line.strip()})
     if raw == _PY_POSTS:
         return VerifyResult(True, "python_posts.txt has the three python-tagged posts")
     return VerifyResult(False, f"python_posts.txt {raw} differs from {_PY_POSTS}")
@@ -2452,7 +2452,7 @@ def _verify_task_198(ws: Path) -> VerifyResult:
         p = extracted / name
         if not p.exists():
             return VerifyResult(False, f"extracted/{name} missing")
-        if p.read_text().strip() != content:
+        if p.read_text(encoding="utf-8").strip() != content:
             return VerifyResult(False, f"extracted/{name} content differs")
     return VerifyResult(True, "bundle.tar.gz extracted to extracted/ with all three files")
 
@@ -2460,9 +2460,9 @@ def _verify_task_198(ws: Path) -> VerifyResult:
 def _tar_198_gold_callback(ws: Path) -> None:
     extracted = ws / "extracted"
     extracted.mkdir(exist_ok=True)
-    (extracted / "first.txt").write_text("first\n")
-    (extracted / "second.txt").write_text("second\n")
-    (extracted / "third.txt").write_text("third\n")
+    (extracted / "first.txt").write_text("first\n", encoding="utf-8")
+    (extracted / "second.txt").write_text("second\n", encoding="utf-8")
+    (extracted / "third.txt").write_text("third\n", encoding="utf-8")
 
 
 TASK_198 = Task(
@@ -2794,7 +2794,7 @@ def _verify_task_204(ws: Path) -> VerifyResult:
         p = ws / rel
         if not p.exists():
             return VerifyResult(False, f"{rel} missing")
-        text = p.read_text()
+        text = p.read_text(encoding="utf-8")
         missing = [s for s in required if s not in text]
         if missing:
             return VerifyResult(False, f"{rel} missing required snippets: {missing}")
@@ -2805,7 +2805,7 @@ def _verify_task_204(ws: Path) -> VerifyResult:
     if not report.exists():
         return VerifyResult(False, "migration_report.json missing")
     try:
-        data = json.loads(report.read_text())
+        data = json.loads(report.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         return VerifyResult(False, f"migration_report.json invalid JSON: {exc}")
     if data.get("files_updated") != 3 or data.get("replacements") != 3:
