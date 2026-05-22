@@ -70,6 +70,7 @@ jobs:
       GIGACHAT_PASSWORD: ${{ secrets.GIGACHAT_PASSWORD }}
       GIGACHAT_BASE_URL: ${{ secrets.GIGACHAT_BASE_URL }}
       GIGACHAT_MODEL: ${{ vars.GIGACHAT_MODEL || 'GigaChat-3-Ultra' }}
+      GIGACHAT_SCOPE: ${{ vars.GIGACHAT_SCOPE }}
       GIGACHAT_VERIFY_SSL_CERTS: ${{ vars.GIGACHAT_VERIFY_SSL_CERTS }}
       # OpenRouter path: `run-openrouter`.
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
@@ -96,7 +97,7 @@ jobs:
           $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force -Path $env:TEMP | Out-Null
 
-          foreach ($name in @("GIGACHAT_BASE_URL", "GIGACHAT_MODEL", "GIGACHAT_VERIFY_SSL_CERTS", "OPENROUTER_BASE_URL")) {
+          foreach ($name in @("GIGACHAT_BASE_URL", "GIGACHAT_MODEL", "GIGACHAT_SCOPE", "GIGACHAT_VERIFY_SSL_CERTS", "OPENROUTER_BASE_URL")) {
             if ((Test-Path "Env:\\$name") -and -not (Get-Item "Env:\\$name").Value) {
               Remove-Item "Env:\\$name"
             }
@@ -126,7 +127,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Continue"
-          foreach ($name in @("GIGACHAT_BASE_URL", "GIGACHAT_MODEL", "GIGACHAT_VERIFY_SSL_CERTS", "OPENROUTER_BASE_URL")) {
+          foreach ($name in @("GIGACHAT_BASE_URL", "GIGACHAT_MODEL", "GIGACHAT_SCOPE", "GIGACHAT_VERIFY_SSL_CERTS", "OPENROUTER_BASE_URL")) {
             if ((Test-Path "Env:\\$name") -and -not (Get-Item "Env:\\$name").Value) {
               Remove-Item "Env:\\$name"
             }
