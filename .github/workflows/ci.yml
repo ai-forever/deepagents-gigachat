@@ -9,6 +9,10 @@ jobs:
     name: Quality (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
 
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+
     strategy:
       fail-fast: false
       matrix:
