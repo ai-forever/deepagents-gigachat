@@ -45,8 +45,12 @@ def build_agent(workspace: Path, *, recursion_limit: int = 80) -> Any:
     )
     model = GigaChat(
         model=os.getenv("GIGACHAT_MODEL", "GigaChat-3-Ultra"),
-        base_url=os.getenv("GIGACHAT_BASE_URL", "https://gigachat.sberdevices.ru/v1"),
-        verify_ssl_certs=False,
+        # Let gigachat-sdk use its current default base URL unless the caller
+        # explicitly overrides it. Hard-coding the old IFT URL here breaks
+        # CORP/PERS credentials that expect the SDK default endpoint.
+        base_url=os.getenv("GIGACHAT_BASE_URL") or None,
+        verify_ssl_certs=os.getenv("GIGACHAT_VERIFY_SSL_CERTS", "false").lower()
+        not in ("false", "0", "no"),
         profanity_check=False,
         timeout=600,
         max_retries=20,

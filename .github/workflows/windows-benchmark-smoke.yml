@@ -52,6 +52,7 @@ jobs:
       PYTHONUTF8: "1"
       PYTHONIOENCODING: "utf-8"
       UV_SYSTEM_PYTHON: "0"
+      HARNESS_BENCH_SHOW_TRACEBACK: "1"
       # Keep --keep workspaces inside the checkout so they can be uploaded.
       TEMP: ${{ github.workspace }}\\.bench-tmp
       TMP: ${{ github.workspace }}\\.bench-tmp
