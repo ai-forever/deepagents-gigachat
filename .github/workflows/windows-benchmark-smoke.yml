@@ -6,7 +6,7 @@ on:
       runner:
         description: "Benchmark runner to execute"
         required: true
-        default: "run"
+        default: "run-cli"
         type: choice
         options:
           - run
@@ -17,7 +17,7 @@ on:
         description: "Task ids separated by comma, space, or newline"
         required: true
         type: string
-        default: "task_01_create_hello, task_03_slugify, task_11_count_py, task_20_move_function, task_21_rename_file, task_28_csv_to_json, task_37_make_pytest_test, task_56_move_to_subdir, task_223_memory_city_timezone_script"
+        default: "task_111_xlsx_extract_b2, task_112_xlsx_sum_column, task_113_xlsx_update_cell, task_123_sqlite_count, task_124_sqlite_sum, task_148_csv_to_xlsx, task_149_sqlite_to_json, task_152_sqlite_join_to_json, task_153_xlsx_to_markdown_report, task_154_jsonl_into_sqlite, task_158_xlsx_split_sheets, task_191_sqlite_revenue_report, task_196_xlsx_to_csv_and_json, task_199_sqlite_filtered_export, task_203_sqlite_team_markdown_report, task_207_inventory_anomaly_report, task_219_sql_paid_leaderboard"
       recursion_limit:
         description: "Agent recursion limit for in-process deepagents runners"
         required: true
@@ -31,12 +31,12 @@ on:
       cli_command:
         description: "Command prefix for run-cli; the task prompt is appended by the benchmark"
         required: false
-        default: "free-code -p --model haiku --dangerously-skip-permissions"
+        default: "cmd /c npx -y opencode-ai@latest run --model openrouter/qwen/qwen3.6-plus"
         type: string
       cli_timeout:
         description: "Per-task timeout in seconds for run-cli"
         required: true
-        default: "600"
+        default: "900"
         type: string
 
 permissions:
@@ -79,6 +79,11 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
       - name: Install dependencies
         run: uv sync --dev
 
@@ -111,7 +116,15 @@ jobs:
           }
 
           if ($runner -eq "run-cli") {
-            Write-Host "CLI command: ${{ inputs.cli_command }}"
+            $cliCommand = @'
+${{ inputs.cli_command }}
+'@.Trim()
+            Write-Host "CLI command: $cliCommand"
+            node --version
+            npm --version
+            if ($cliCommand -match "(?i)openrouter" -and -not $env:OPENROUTER_API_KEY) {
+              throw "Runner 'run-cli' with an OpenRouter-backed CLI command requires OPENROUTER_API_KEY repository secret."
+            }
           }
 
       - name: Run benchmark smoke
