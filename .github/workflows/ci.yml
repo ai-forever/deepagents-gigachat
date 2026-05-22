@@ -38,7 +38,7 @@ jobs:
         run: uv run pytest
 
       - name: Verify harness gold solutions
-        run: uv run python -m harness_bench verify-gold
+        run: uv run python .github/scripts/verify_gold_with_annotations.py
 
       - name: Build package
         run: uv build
