@@ -116,9 +116,7 @@ jobs:
           }
 
           if ($runner -eq "run-cli") {
-            $cliCommand = @'
-${{ inputs.cli_command }}
-'@.Trim()
+            $cliCommand = "${{ inputs.cli_command }}"
             Write-Host "CLI command: $cliCommand"
             node --version
             npm --version
