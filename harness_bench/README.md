@@ -173,205 +173,73 @@ uv run python -m harness_bench verify-gold
 
 ## Results
 
-All runs use `--concurrency 5`. The `deepagents` rows use this repo
-(`uv run python -m harness_bench run` for GigaChat, `run-openrouter` for
-OpenRouter models). The `free-code` rows use Claude Code CLI v2.1.119.
+All runs use `--concurrency 5` on the current **231-task** set. The
+`deepagents` rows use this repo (`uv run python -m harness_bench run`
+for GigaChat, `run-openrouter` for OpenRouter models). The `free-code`
+rows use Claude Code CLI v2.1.119.
 
 | Date | Runner | Model | Harness adapt | Result | % |
 | --- | --- | --- | --- | --- | --- |
-| 2026-05-14 | `deepagents` | Mistral Small 3.2 24B Instruct | no | 94 / 200 | 47.0 % |
-| 2026-05-13 | `deepagents` | Llama 3.3 70B Instruct | no | 100 / 200 | 50.0 % |
-| 2026-05-15 | `pi-mono` | Llama 3.3 70B Instruct | yes (built-in) | 127 / 200 | 63.5 % |
-| 2026-05-14 | `deepagents` | GPT-4.1-nano | no | 115 / 200 | 57.5 % |
-| 2026-05-14 | `deepagents` | GPT-3.5-turbo | no | 119 / 200 | 59.5 % |
-| 2026-05-13 | `deepagents` | GigaChat-3-Ultra | no | 134 / 200 | 67.0 % |
-| 2026-05-14 | `deepagents` | GigaChat-3-Pro | yes (v3) | 137 / 200 | 68.5 % |
-| 2026-05-14 | `pi-mono` | GPT-4.1-nano | ? (run by colleague) | 141 / 200 | 70.5 % |
-| 2026-05-14 | `deepagents` | Qwen3-Coder-30B-A3B Instruct | no | 163 / 200 | 81.5 % |
-| 2026-05-14 | `deepagents` | GigaChat-3-Ultra | yes (v3) | 164 / 200 | 82.0 % |
-| 2026-05-15 | `deepagents` | GigaChat-2-Max | yes (v3) | 165 / 200 | 82.5 % |
-| 2026-05-18 | `deepagents` | GigaChat-3-Ultra (IFT, deepagents 0.5.7) | yes (v4) | 169 / 200 | 84.5 % |
-| 2026-05-19 | `deepagents` | GigaChat-3-Ultra (IFT, deepagents 0.6.2) | yes (v7) | 169 / 200 | 84.5 % |
-| 2026-05-19 | `deepagents` | GigaChat-3-Ultra (IFT, deepagents 0.6.2) | yes (v8) | 177 / 200 | 88.5 % |
-| 2026-05-14 | `deepagents` | DeepSeek V4 Flash | no | 165 / 200 | 82.5 % |
-| 2026-05-14 | `pi-mono` | GPT-4o-mini | ? (run by colleague) | 166 / 200 | 83.0 % |
-| 2026-05-13 | `deepagents` | GPT-4.1-mini | no | 168 / 200 | 84.0 % |
-| 2026-05-20 | `pi-mono` 0.75.3 | **GigaChat-3-Ultra:32.3.18.5** (IFT) | yes (ext: gigachat 0.1.1) | **170 / 200** | **85.0 %** |
-| 2026-05-14 | `deepagents` | Qwen3.5-397B-A17B | no | 172 / 200 | 86.0 % |
-| 2026-05-14 | `deepagents` | GLM-4.6 | no | 174 / 200 | 87.0 % |
-| 2026-05-13 | `deepagents` | Claude Haiku 4.5 | yes (built-in) | 177 / 200 | 88.5 % |
-| 2026-05-14 | `pi-mono` | GPT-4.1-mini | ? (run by colleague) | 179 / 200 | 89.5 % |
-| 2026-05-14 | `deepagents` | GLM-5.1 | no | 180 / 200 | 90.0 % |
-| 2026-05-14 | `deepagents` | Claude Sonnet 4.5 | no | 185 / 200 | 92.5 % |
-| 2026-05-13 | `free-code` | Claude Haiku 4.5 | yes (built-in) | 185 / 200 | 92.5 % |
-| 2026-05-14 | `deepagents` | Claude Opus 4.7 | yes (built-in) | 188 / 200 | 94.0 % |
-| 2026-05-15 | `pi-mono` | Claude Haiku 4.5 | yes (built-in) | 190 / 200 | 95.0 % |
-| 2026-05-20 | `qwen-code` 0.15.11 | **qwen3-coder-next** (via OpenRouter, `-y`) | yes (built-in) | **207 / 221** | **93.7 %** |
-| 2026-05-20 | `deepagents` | GigaChat-3-Ultra:32.3.18.5 (IFT, deepagents 0.6.2) | yes (v9) | 186 / 221 | 84.2 % |
-| 2026-05-20 | `deepagents` | **GigaChat-3-Ultra:32.3.7.3** (PROM, deepagents 0.6.2) | **yes (v9)** | **188 / 221** | **85.1 %** |
-| 2026-05-21 | `deepagents` | GigaChat-3-Ultra (PROM, deepagents 0.6.2 + async `ShellSafetyMiddleware`) | yes (v9) | 185 / 221 | 83.7 % |
-| 2026-05-21 | `deepagents` | GigaChat-3-Ultra (PROM, deepagents 0.6.2) | yes (v8) | 189 / 221 | 85.5 % |
 | 2026-05-21 | `free-code` 2.1.119 | **Claude Opus 4.7** | yes (built-in + AGENTS.md inject) | **231 / 231** | **100 %** |
+| 2026-05-22 | `deepagents` | **GigaChat-3-Ultra** (PROM, deepagents 0.6.3 + langgraph 1.2.1) | **yes (v9 + memory wiring)** | **195 / 231** | **84.4 %** |
+| 2026-05-22 | `deepagents` | GigaChat-3-Ultra (PROM, deepagents 0.6.2) | no (pkg uninstalled + entry-point disabled) | 154 / 231 | 66.7 % |
 
-The 2026-05-21 Opus run on the extended 231-task set surfaced 12
-initial failures. All of them turned out to be artifacts of the
-bench (ambiguous prompts, an over-strict verifier, an
-adapter/convention mismatch) rather than real model errors; once
-those were corrected, Opus reached **231/231 (100 %)**. The second
-full run measured 230/231 — the one residual failure
-(`task_175_csv_stats_basic`, contradictory "median целое число"
-instruction) was diagnosed, the prompt was fixed, and the task
-was re-verified individually on Opus (PASS) immediately after.
+The GigaChat-3-Ultra rows quantify the contribution of the
+`deepagents_gigachat` profile on the current bench: **+41 tasks (154 →
+195)** comes from the v9 profile + memory wiring on top of stock
+`deepagents`. The baseline run was done by uninstalling the package
+(removing the `gigachat` entry-point from `deepagents.harness_profiles`)
+and renaming the local source folder so `register_harness()` is
+neither auto-discovered nor importable.
 
-Detailed log of what was wrong vs. what got fixed:
+The 2026-05-21 Opus run is logged in detail because all 12 initial
+failures turned out to be artifacts of the bench rather than real
+model errors, and the fixes apply to other adapters too:
 
-1. **Adapter mismatch — `tasks_memory.py` (8 fails fixed)**.
-   The memory block (222-231) depends on the `AGENTS.md` →
-   `MEMORY.md` convention used by `deepagents` / Codex CLI /
-   Cursor. The free-code CLI ships its own host-side memory at
+1. **Adapter mismatch — `tasks_memory.py` (8 fails fixed)**. The
+   memory block (222-231) depends on the `AGENTS.md` → `MEMORY.md`
+   convention used by `deepagents` / Codex CLI / Cursor. The
+   free-code CLI ships its own host-side memory at
    `~/.claude/projects/...` and does NOT auto-load workspace
    `AGENTS.md`, so the agent never saw the memory instructions and
    silently no-op'd most memory tasks. `runner_cli.py` now detects
    a Claude-Code-style CLI and injects the workspace `AGENTS.md`
-   via `--append-system-prompt`; with the inject, memory tasks
-   pass.
-
+   via `--append-system-prompt`.
 2. **Ambiguous prompts (3 fails fixed)**. `task_213` now states
    `domain == urlparse.netloc` (host+port, so `localhost:3000`
-   rather than `localhost`); `task_215` shows an example
-   confirming `<text>` keeps the `TODO:`/`FIXME:` marker;
-   `task_206` now requires `paid_usd` formatted with exactly two
-   decimal places (`320.00`, not `320.0`). All three were
-   prompt-only failures, not model errors.
-
+   rather than `localhost`); `task_215` shows an example confirming
+   `<text>` keeps the `TODO:`/`FIXME:` marker; `task_206` now
+   requires `paid_usd` formatted with exactly two decimal places.
 3. **Verifier bug — `task_231` (1 fail fixed)**. The README-wording
-   regex only accepted first-person "работаю с Anthropic", so
-   third-person "Дмитрий работает с Anthropic" (which is what Opus
-   correctly wrote, per the user's framing) was rejected.
-   Broadened the regex to `работ\w*\s+с`. Same task's secret-leak
-   scan also ignored `.free-code-logs/` and other dot-dirs, since
-   those are adapter debug captures, not artifacts the agent
-   produced.
+   regex only accepted first-person "работаю с Anthropic", broadened
+   to `работ\w*\s+с`. Secret-leak scan also skips dot-dirs (those are
+   adapter debug captures, not agent artifacts).
+4. **Contradictory prompt — `task_175` (1 fail fixed)**. Prompt said
+   "median, min, max — целые числа", but gold uses `statistics.median`
+   = 22.5. Prompt now spells out `median = (a+b)/2 for even-length,
+   not rounded`.
 
-4. **Contradictory prompt — `task_175` (1 fail fixed)**. The prompt
-   said "median, min, max — целые числа", but the gold answer
-   used `statistics.median` which returns 22.5 for the 20-element
-   dataset. Opus correctly read the prompt and rounded to 22 →
-   verifier mismatch. Prompt now spells out
-   `median = (a+b)/2 for even-length, not rounded`.
+The same fixes affected GigaChat too: it jumped from 184/231 (on
+`deepagents` 0.6.2 + earlier bench prompts) to 195/231 once the
+prompts were clarified and the stack was upgraded to deepagents 0.6.3
++ langgraph 1.2.1. Memory part still scores poorly for GigaChat
+(2/10), suggesting that the `memory=["/AGENTS.md"]` wiring added to
+`runner.py` does not reach GigaChat-3-Ultra's prompt in a form the
+model acts on (Opus reads it just fine via `--append-system-prompt`
+into Claude Code).
 
-GigaChat-3-Ultra has not been re-measured on the 231-task set with
-these fixes applied; the /221 rows above are the latest available
-data for it. With the same fixes a re-measurement would likely
-move it up by a few points too, since v9 also failed `task_213`
-and `task_215` on the same ambiguities.
+### Historical results
 
-### Superseded runs (kept for context, not counted)
-
-These configurations have been re-measured on a larger task set;
-the older /200 numbers are kept below for traceability but should not be
-used for cross-model comparison.
-
-| Date | Runner | Model | Harness adapt | Result | % | Superseded by |
-| --- | --- | --- | --- | --- | --- | --- |
-| 2026-05-20 | `deepagents` | GigaChat-3-Ultra:32.3.18.5 (IFT, deepagents 0.6.2) | yes (v9) | 176–182 / 200 (5 runs, avg 179) | 88–91 % | 186 / 221 row above |
-| 2026-05-20 | `deepagents` | GigaChat-3-Ultra:32.3.7.3 (PROM, deepagents 0.6.2) | yes (v9) | 185 / 200 | 92.5 % | 188 / 221 row above |
-| 2026-05-13 | `free-code` | Claude Opus 4.7 | yes (built-in) | 195 / 200 | 97.5 % | 230 / 231 row above |
-
-The GigaChat-3-Ultra row with `yes (v9)` is the current pinned
-configuration of this repository on the latest `deepagents` 0.6.x stack
-(also langchain 1.3, langgraph 1.2). It extends v8 with two new
-defensive middleware that fired on tasks outside this bench but are
-neutral here within run-to-run noise:
-
-The 2026-05-21 row re-runs the same PROM config after adding an
-`awrap_tool_call` hook to `ShellSafetyMiddleware` (so the safety check
-also fires on the async tool-runner path that langgraph 1.2.x exercises
-when the agent dispatches tool calls through `await`). The −3 delta
-from the 2026-05-20 PROM run sits inside the documented ±5 noise band:
-the new async path is exercised on every `execute` call but does not
-itself reject anything that the sync path wouldn't have rejected, and
-no failures in the log point at it. Adopting it as part of v9.
-
-The second 2026-05-21 row is a one-off **v8 vs v9 head-to-head on the
-current 221-task set**, run by rolling `deepagents_gigachat/` back to
-commit `d779dc2` and rebuilding the wheel (everything else — bench
-tasks, deps, GigaChat PROM endpoint — unchanged). v8 scored **189/221
-(85.5 %)** against v9's 185–188/221 on the same set. Both numbers sit
-inside the documented ±5 noise band of a single run, so it is **not**
-evidence that v8 is better than v9 on harness_bench, only that the two
-profiles are statistically indistinguishable on this suite. The
-defensive middleware added in v9 (`ShellSafetyMiddleware`,
-`ToolContractMiddleware`) earn their place on tasks outside this bench
-— see notes below — and on harness_bench they are at worst neutral.
-
-- **`ShellSafetyMiddleware`** rejects obviously dangerous shell
-  patterns (`rm -rf /`, unscoped `chmod 777`, `curl … | sh`, etc.)
-  before they reach `execute`, so a user running the plugin against a
-  real workspace can't lose data to an over-eager model.
-- **`ToolContractMiddleware`** validates each tool-call's arguments
-  against the tool's declared schema before invocation and rewrites
-  the assistant turn with a corrective system note if the shape is
-  off. On other suites this catches arg-name typos that langgraph
-  would otherwise surface as `model_node_exc`.
-
-On four back-to-back 200-task runs the score sat at 176, 182, 177,
-181 (avg 179, median 179) — a +2 shift over v8's 177 that's at the
-edge of the documented ±5 noise band in `EXPERIMENTS_PLAN.md`.
-Keeping both middleware because they are clear wins on the broader
-internal suite and at worst neutral here.
-
-v8 builds on top of v7's recovery fixes (path-semantics, script-pattern,
-LoopBreaker) and adds two new ones found by tracing the residual v7
-failures:
-
-v8 builds on top of v7's recovery fixes (path-semantics, script-pattern,
-LoopBreaker) and adds two new ones found by tracing the residual v7
-failures:
-
-- **`edit_file` description hardened around the `<line_no>\t` prefix
-  leak.** Per-step traces of v7 model-node failures (e.g. on
-  `task_30_add_todo`) showed the model copying `read_file` output
-  verbatim — including the `     3\t` display prefix — into
-  `edit_file.old_string`, which then never matched the actual file
-  bytes. The new description opens with an explicit "STRIP the
-  '<line_no>\t' prefix" rule, complete with a worked example and a
-  reminder that "String not found" errors after a recent read are
-  almost always this leak.
-- **`LoopBreakerMiddleware` widened + the post-injection 400 fixed.**
-  The original loop detector only triggered on three byte-identical
-  `(tool, args)` tuples. It now also triggers on three consecutive
-  error results from the same tool even when args drift slightly
-  (e.g. the model edits the surrounding context but keeps the prefix
-  leak), and the nudge calls out the prefix-leak as the most likely
-  cause. The nudge itself was switched from `SystemMessage` to
-  `HumanMessage`: GigaChat enforces "system message must be the first
-  message" at the API layer, so a mid-conversation `SystemMessage`
-  produced a hard `400 BadRequest` that langgraph surfaced as
-  `During task with name 'model'`. That single bug masked most of v7's
-  residual `model_node_exc` failures.
-
-`v7` was the closest-to-stock pin on `deepagents` 0.6.x — it kept the
-upstream toolset (`write_todos`, `task`) unchanged and only layered in
-path/script/loop-breaker fixes. `v6` additionally disabled
-`TodoListMiddleware` and the auto-added general-purpose subagent on
-the theory that the inflated 0.6.x descriptions for `write_todos`
-(3.6 KB) and `task` (6.9 KB) were the regression's root cause —
-re-enabling them later kept PASS at 169 and *reduced* recursion-limit
-fails from 8 to 2, so the divergence wasn't worth it.
-
-`v4` is the equivalent pin for `deepagents` 0.5.7. `v3` is the original
-expanded-prompt pin. Without any of them, GigaChat-3-Ultra scores
-134 / 200 on the same bench. The agent runs with `max_retries=20` in
-`runner.py` so transient IFT bursts of 500 / 403 are ridden out instead
-of dropping tasks. Raw run logs are written to `harness_bench/runs/`.
+Older runs on the /200 and /221 task sets, plus the v3 → v9 profile
+evolution notes, are archived in
+[`LEGACY_RESULTS.md`](LEGACY_RESULTS.md). Those numbers are **not
+comparable** to the /231 rows above and should not be used for
+cross-model comparison.
 
 The `yes (built-in)` rows pick up harness profiles that ship inside
-`deepagents` itself (currently only `anthropic:claude-opus-4-7`,
-`anthropic:claude-sonnet-4-6`, `anthropic:claude-haiku-4-5` and a few
-`openai:gpt-5.x-codex` keys). Other GPT-* / Sonnet 4.5 / open-weights
-rows fall back to the generic provider profile and score with no
-model-specific adapt.
+`deepagents` itself (currently `anthropic:claude-opus-4-7`,
+`anthropic:claude-sonnet-4-6`, `anthropic:claude-haiku-4-5`, and a
+few `openai:gpt-5.x-codex` keys).
 
 ## Adding a task
 
