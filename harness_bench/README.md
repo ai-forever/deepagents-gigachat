@@ -206,23 +206,22 @@ OpenRouter models). The `free-code` rows use Claude Code CLI v2.1.119.
 | 2026-05-13 | `free-code` | Claude Haiku 4.5 | yes (built-in) | 185 / 200 | 92.5 % |
 | 2026-05-14 | `deepagents` | Claude Opus 4.7 | yes (built-in) | 188 / 200 | 94.0 % |
 | 2026-05-15 | `pi-mono` | Claude Haiku 4.5 | yes (built-in) | 190 / 200 | 95.0 % |
-| 2026-05-13 | `free-code` | **Claude Opus 4.7** | yes (built-in) | **195 / 200** | **97.5 %** |
 | 2026-05-20 | `qwen-code` 0.15.11 | **qwen3-coder-next** (via OpenRouter, `-y`) | yes (built-in) | **207 / 221** | **93.7 %** |
 | 2026-05-20 | `deepagents` | GigaChat-3-Ultra:32.3.18.5 (IFT, deepagents 0.6.2) | yes (v9) | 186 / 221 | 84.2 % |
 | 2026-05-20 | `deepagents` | **GigaChat-3-Ultra:32.3.7.3** (PROM, deepagents 0.6.2) | **yes (v9)** | **188 / 221** | **85.1 %** |
 | 2026-05-21 | `deepagents` | GigaChat-3-Ultra (PROM, deepagents 0.6.2 + async `ShellSafetyMiddleware`) | yes (v9) | 185 / 221 | 83.7 % |
 | 2026-05-21 | `deepagents` | GigaChat-3-Ultra (PROM, deepagents 0.6.2) | yes (v8) | 189 / 221 | 85.5 % |
-| 2026-05-21 | `free-code` 2.1.119 | **Claude Opus 4.7** | yes (built-in + AGENTS.md inject) | **230 / 231** (231 after `task_175` fix) | **99.6 %** |
+| 2026-05-21 | `free-code` 2.1.119 | **Claude Opus 4.7** | yes (built-in + AGENTS.md inject) | **231 / 231** | **100 %** |
 
 The 2026-05-21 Opus run on the extended 231-task set surfaced 12
 initial failures. All of them turned out to be artifacts of the
 bench (ambiguous prompts, an over-strict verifier, an
 adapter/convention mismatch) rather than real model errors; once
-those were corrected, Opus's measured score rose to 230/231
-(99.6 %) on the second full run, and the one remaining failure
-(`task_175_csv_stats_basic`, contradictory "median целое
-число" instruction) was fixed and verified individually after the
-run. Effective ceiling on this bench for Opus is 231/231 (100 %).
+those were corrected, Opus reached **231/231 (100 %)**. The second
+full run measured 230/231 — the one residual failure
+(`task_175_csv_stats_basic`, contradictory "median целое число"
+instruction) was diagnosed, the prompt was fixed, and the task
+was re-verified individually on Opus (PASS) immediately after.
 
 Detailed log of what was wrong vs. what got fixed:
 
@@ -269,7 +268,7 @@ and `task_215` on the same ambiguities.
 
 ### Superseded runs (kept for context, not counted)
 
-These configurations have been re-measured on the current 221-task set;
+These configurations have been re-measured on a larger task set;
 the older /200 numbers are kept below for traceability but should not be
 used for cross-model comparison.
 
@@ -277,6 +276,7 @@ used for cross-model comparison.
 | --- | --- | --- | --- | --- | --- | --- |
 | 2026-05-20 | `deepagents` | GigaChat-3-Ultra:32.3.18.5 (IFT, deepagents 0.6.2) | yes (v9) | 176–182 / 200 (5 runs, avg 179) | 88–91 % | 186 / 221 row above |
 | 2026-05-20 | `deepagents` | GigaChat-3-Ultra:32.3.7.3 (PROM, deepagents 0.6.2) | yes (v9) | 185 / 200 | 92.5 % | 188 / 221 row above |
+| 2026-05-13 | `free-code` | Claude Opus 4.7 | yes (built-in) | 195 / 200 | 97.5 % | 230 / 231 row above |
 
 The GigaChat-3-Ultra row with `yes (v9)` is the current pinned
 configuration of this repository on the latest `deepagents` 0.6.x stack
