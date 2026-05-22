@@ -14,19 +14,10 @@ on:
           - run-openrouter
           - run-cli
       tasks:
-        description: "Task ids, one per line"
+        description: "Task ids separated by comma, space, or newline"
         required: true
         type: string
-        default: |
-          task_01_create_hello
-          task_03_slugify
-          task_11_count_py
-          task_20_move_function
-          task_21_rename_file
-          task_28_csv_to_json
-          task_37_make_pytest_test
-          task_56_move_to_subdir
-          task_223_memory_city_timezone_script
+        default: "task_01_create_hello, task_03_slugify, task_11_count_py, task_20_move_function, task_21_rename_file, task_28_csv_to_json, task_37_make_pytest_test, task_56_move_to_subdir, task_223_memory_city_timezone_script"
       recursion_limit:
         description: "Agent recursion limit for in-process deepagents runners"
         required: true
@@ -137,7 +128,7 @@ jobs:
           $tasksText = @'
           ${{ inputs.tasks }}
           '@
-          $tasks = $tasksText -split "`r?`n" |
+          $tasks = $tasksText -split "[,\s]+" |
             ForEach-Object { $_.Trim() } |
             Where-Object { $_ -and -not $_.StartsWith("#") }
 
