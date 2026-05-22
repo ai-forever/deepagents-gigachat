@@ -52,7 +52,6 @@ jobs:
       PYTHONUTF8: "1"
       PYTHONIOENCODING: "utf-8"
       UV_SYSTEM_PYTHON: "0"
-      HARNESS_BENCH_SHOW_TRACEBACK: "1"
       # Keep --keep workspaces inside the checkout so they can be uploaded.
       TEMP: ${{ github.workspace }}\\.bench-tmp
       TMP: ${{ github.workspace }}\\.bench-tmp
@@ -141,7 +140,7 @@ jobs:
           foreach ($task in $tasks) {
             $benchArgs += @("--task", $task)
           }
-          $benchArgs += "--keep"
+          $benchArgs += @("--keep", "--allow-task-failures")
 
           if ($runner -in @("run", "run-pure", "run-openrouter")) {
             $benchArgs += @("--recursion-limit", "${{ inputs.recursion_limit }}")

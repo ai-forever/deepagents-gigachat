@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import threading
 import time
-import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -14,6 +13,7 @@ from typing import Any
 from harness_bench.core import Task
 from harness_bench.runner import (
     TaskRun,
+    _agent_exception_task_run,
     _load_env_from_dotenv,
     _one_line_detail,
     _task_sort_key,
@@ -82,13 +82,12 @@ def run_task(
         try:
             agent = build_agent(workspace_path, recursion_limit=recursion_limit)
             agent.invoke({"messages": [{"role": "user", "content": task.prompt}]})
-        except Exception:
-            return TaskRun(
+        except Exception as exc:  # noqa: BLE001 — log and surface as task failure
+            return _agent_exception_task_run(
+                exc,
                 task_id=task.id,
-                passed=False,
-                message="",
                 elapsed_seconds=time.monotonic() - started,
-                error=traceback.format_exc(),
+                recursion_limit=recursion_limit,
                 workspace=workspace_path if keep_workspace else None,
             )
         result = task.verify(workspace_path)

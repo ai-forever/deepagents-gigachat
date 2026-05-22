@@ -16,6 +16,42 @@ from harness_bench.core import Task, VerifyResult
 from harness_bench.tasks import ALL_TASKS, get_task
 
 
+def _is_graph_recursion_error(exc: BaseException) -> bool:
+    """Return True when ``exc`` is LangGraph's recursion-limit failure."""
+    try:
+        from langgraph.errors import GraphRecursionError
+    except ImportError:  # pragma: no cover - langgraph is an indirect runtime dep.
+        return exc.__class__.__name__ == "GraphRecursionError"
+    return isinstance(exc, GraphRecursionError)
+
+
+def _agent_exception_task_run(
+    exc: BaseException,
+    *,
+    task_id: str,
+    elapsed_seconds: float,
+    recursion_limit: int,
+    workspace: Path | None,
+) -> TaskRun:
+    """Convert an agent/runtime exception into a normal task failure."""
+    if _is_graph_recursion_error(exc):
+        return TaskRun(
+            task_id=task_id,
+            passed=False,
+            message=f"graph recursion limit reached after {recursion_limit} steps",
+            elapsed_seconds=elapsed_seconds,
+            workspace=workspace,
+        )
+    return TaskRun(
+        task_id=task_id,
+        passed=False,
+        message="",
+        elapsed_seconds=elapsed_seconds,
+        error=traceback.format_exc(),
+        workspace=workspace,
+    )
+
+
 @dataclass
 class TaskRun:
     """The outcome of running a single task."""
@@ -126,13 +162,12 @@ def run_task(
             set_workspace_path(workspace_path)
             agent = build_agent(workspace_path, recursion_limit=recursion_limit)
             agent.invoke({"messages": [{"role": "user", "content": task.prompt}]})
-        except Exception:  # noqa: BLE001 — log and surface as failure
-            return TaskRun(
+        except Exception as exc:  # noqa: BLE001 — log and surface as task failure
+            return _agent_exception_task_run(
+                exc,
                 task_id=task.id,
-                passed=False,
-                message="",
                 elapsed_seconds=time.monotonic() - started,
-                error=traceback.format_exc(),
+                recursion_limit=recursion_limit,
                 workspace=workspace_path if keep_workspace else None,
             )
         result = task.verify(workspace_path)
