@@ -217,31 +217,33 @@ uv run python examples/basic_agent.py
 
 ## Benchmark
 
-The [`harness_bench/`](harness_bench/) directory contains an in-tree
-benchmark of 200 file-operation tasks: file creation and editing,
-refactoring, project-wide `grep`/`glob` searches, CSV / JSON / JSONL /
-YAML / TOML / INI / XLSX / SQLite manipulation, implementing functions
-that have to pass pytest tests, and composite pipelines. Every verifier
-is mechanical — no LLM-as-judge.
+The benchmark used to validate every profile version of this plugin
+now lives in its own repo:
+[`ai-forever/harness-bench-fast`](https://github.com/ai-forever/harness-bench-fast).
+It is a self-contained 231-task agent evaluation covering file
+creation/editing, refactors, project-wide `grep`/`glob`, CSV / JSON /
+JSONL / YAML / TOML / INI / XLSX / SQLite pipelines, pytest-graded
+implementations, composite multi-step pipelines, and `MEMORY.md`
+discipline. Every verifier is mechanical — no LLM-as-judge.
 
-The numbers below come from running the same set of tasks against the
-same model (`GigaChat-3-Ultra` via `gigachat.ift.sberdevices.ru/v1`),
-launched with the same command
-`uv run python -m harness_bench run --concurrency 5`:
+Latest contribution of this plugin on that bench, against
+`GigaChat-3-Ultra` at `gigachat.sberdevices.ru/v1`:
 
-| Configuration                | PASS / 200 | %      | Δ                  |
-| ---------------------------- | ---------- | ------ | ------------------ |
-| `deepagents` without plugin  | 134 / 200  | 67.0 % | —                  |
-| `deepagents` + plugin (v3)   | 153 / 200  | 76.5 % | +19 (+9.5 pp)      |
+| Configuration                          | PASS / 231 | %      | Δ                  |
+| -------------------------------------- | ---------- | ------ | ------------------ |
+| stock `deepagents`, no profile         | 154 / 231  | 66.7 % | —                  |
+| `deepagents` + this plugin (v10)       | 194 / 231  | 84.0 % | +40 (+17.3 pp)     |
 
-"Plugin (v3)" refers to the configuration currently pinned in this
-repository: the custom `base_system_prompt` in
-`deepagents_gigachat/prompts.py`, tool description overrides for
-`write_file` / `edit_file` / `grep` / `execute`, and `ThinkToolMiddleware`.
+v10 = v9 (`ThinkToolMiddleware` + `ShellSafetyMiddleware` +
+`ToolContractMiddleware` + `LoopBreakerMiddleware` + the
+`base_system_prompt` and tool description overrides) plus
+`AgentsMdInjectMiddleware`, which eagerly injects workspace `AGENTS.md`
+into the conversation so weaker models that don't reach for
+`memory=["/AGENTS.md"]` on their own still see the project conventions.
 
-For a per-task breakdown — which tasks the profile fixes, where it
-regresses, and which tasks fail on both configurations —
-see [`harness_bench/README.md`](harness_bench/README.md).
+Two profile changes were prototyped on the bench in the same session
+and reverted — see [`EXPERIMENTS_TRIED.md`](EXPERIMENTS_TRIED.md) for
+the write-up.
 
 ## Lint
 
