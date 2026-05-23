@@ -91,7 +91,7 @@ def _verify_task_63(ws: Path) -> VerifyResult:
     if not p.exists():
         return VerifyResult(False, "config.json missing")
     try:
-        data = json.loads(p.read_text())
+        data = json.loads(p.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         return VerifyResult(False, f"invalid JSON: {exc}")
     if data.get("name") != "app":
@@ -366,7 +366,7 @@ def _verify_task_73(ws: Path) -> VerifyResult:
     p = ws / "emails.txt"
     if not p.exists():
         return VerifyResult(False, "emails.txt missing")
-    lines = [line.strip() for line in p.read_text().splitlines() if line.strip()]
+    lines = [line.strip() for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]
     expected = {"alice@example.com", "bob@test.org", "carol@demo.net"}
     if set(lines) != expected:
         return VerifyResult(
@@ -450,7 +450,7 @@ def _verify_task_75(ws: Path) -> VerifyResult:
     p = ws / "squashed.txt"
     if not p.exists():
         return VerifyResult(False, "squashed.txt missing")
-    text = p.read_text()
+    text = p.read_text(encoding="utf-8")
     if "\n\n\n" in text:
         return VerifyResult(False, "squashed.txt still has 2+ consecutive blank lines")
     expected_content_lines = ["one", "two", "three"]
@@ -526,7 +526,7 @@ def _verify_task_77(ws: Path) -> VerifyResult:
     p = ws / "tally.txt"
     if not p.exists():
         return VerifyResult(False, "tally.txt missing")
-    lines = [line for line in p.read_text().splitlines() if line.strip()]
+    lines = [line for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]
     expected = {"A: 2", "B: 1", "C: 3"}
     if set(lines) != expected:
         return VerifyResult(
@@ -813,7 +813,7 @@ def _verify_task_86(ws: Path) -> VerifyResult:
     p = ws / "numbers.txt"
     if not p.exists():
         return VerifyResult(False, "numbers.txt missing")
-    lines = [line for line in p.read_text().splitlines() if line.strip()]
+    lines = [line for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]
     expected = ["42", "7", "13", "99"]
     if lines != expected:
         return VerifyResult(
@@ -989,7 +989,7 @@ def _verify_task_91(ws: Path) -> VerifyResult:
     if not p.exists():
         return VerifyResult(False, "config.json missing")
     try:
-        data = json.loads(p.read_text())
+        data = json.loads(p.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         return VerifyResult(False, f"invalid JSON: {exc}")
     if not isinstance(data, dict):
@@ -1059,7 +1059,7 @@ def _verify_task_93(ws: Path) -> VerifyResult:
         "row_3.csv": "Carol,40",
     }
     for name, content in expected_contents.items():
-        actual = (rows_dir / name).read_text().strip()
+        actual = (rows_dir / name).read_text(encoding="utf-8").strip()
         if actual != content:
             return VerifyResult(
                 False, f"rows/{name} content {actual!r} differs from {content!r}"
@@ -1174,7 +1174,7 @@ def _verify_task_96(ws: Path) -> VerifyResult:
         "b: banana,blueberry",
         "c: cherry",
     }
-    actual = {line.strip() for line in p.read_text().splitlines() if line.strip()}
+    actual = {line.strip() for line in p.read_text(encoding="utf-8").splitlines() if line.strip()}
     if actual != expected:
         return VerifyResult(
             False,
@@ -1305,7 +1305,7 @@ def _verify_task_100(ws: Path) -> VerifyResult:
     if not p.exists():
         return VerifyResult(False, "accounts.json missing")
     try:
-        data = json.loads(p.read_text())
+        data = json.loads(p.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         return VerifyResult(False, f"invalid JSON: {exc}")
     if not isinstance(data, list) or len(data) != 3:

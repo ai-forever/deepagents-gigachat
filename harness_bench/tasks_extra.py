@@ -482,7 +482,7 @@ def _verify_task_48(ws: Path) -> VerifyResult:
         ("second.log", "two beta"),
         ("third.log", "three gamma"),
     ]:
-        lines = (log_dir / name).read_text().splitlines()
+        lines = (log_dir / name).read_text(encoding="utf-8").splitlines()
         if lines[-1] != "EOF":
             return VerifyResult(False, f"logs/{name}: last line is {lines[-1]!r}, expected 'EOF'")
         if original_first_line not in lines:
@@ -522,7 +522,7 @@ def _verify_task_49(ws: Path) -> VerifyResult:
     p = ws / "table.md"
     if not p.exists():
         return VerifyResult(False, "table.md missing")
-    text = p.read_text()
+    text = p.read_text(encoding="utf-8")
     required = [
         "| name | age |",
         "Alice",
@@ -623,7 +623,7 @@ def _verify_task_52(ws: Path) -> VerifyResult:
     p = ws / "files.txt"
     if not p.exists():
         return VerifyResult(False, "files.txt missing")
-    lines = [line.strip() for line in p.read_text().splitlines() if line.strip()]
+    lines = [line.strip() for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]
     # Accept either basename or relative path with or without leading "./".
     normalized = {line.removeprefix("./").removesuffix("/") for line in lines}
     expected_sets = [
@@ -687,7 +687,7 @@ def _verify_task_54(ws: Path) -> VerifyResult:
     p = ws / "users.csv"
     if not p.exists():
         return VerifyResult(False, "users.csv missing")
-    rows = list(csv.reader(io.StringIO(p.read_text())))
+    rows = list(csv.reader(io.StringIO(p.read_text(encoding="utf-8"))))
     if not rows:
         return VerifyResult(False, "users.csv empty")
     header = rows[0]
@@ -841,7 +841,7 @@ def _verify_task_58(ws: Path) -> VerifyResult:
     if not p.exists():
         return VerifyResult(False, "phones.txt missing")
     expected = ["+7 (999) 123-45-67", "+7 (495) 555-12-34"]
-    actual = [line for line in p.read_text().splitlines() if line.strip()]
+    actual = [line for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]
     if actual != expected:
         return VerifyResult(
             False, f"phones.txt content {actual!r} differs from expected {expected!r}"
@@ -874,7 +874,7 @@ def _verify_task_59(ws: Path) -> VerifyResult:
     p = ws / "unique_words.txt"
     if not p.exists():
         return VerifyResult(False, "unique_words.txt missing")
-    actual = [line for line in p.read_text().splitlines() if line.strip()]
+    actual = [line for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]
     expected = sorted({"foo", "bar", "baz"})
     if actual == expected:
         return VerifyResult(True, "unique_words.txt sorted unique words match")
@@ -916,7 +916,7 @@ def _verify_task_60(ws: Path) -> VerifyResult:
         f = new / name
         if not f.exists():
             return VerifyResult(False, f"src/new/{name} missing")
-        actual = f.read_text()
+        actual = f.read_text(encoding="utf-8")
         if actual != content:
             return VerifyResult(
                 False, f"src/new/{name} content differs: {actual!r} vs {content!r}"

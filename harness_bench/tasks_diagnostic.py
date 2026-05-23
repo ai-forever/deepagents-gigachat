@@ -49,7 +49,7 @@ def _json_file_matches_loose(rel: str, expected, *, ordered: bool = False):
         if not p.exists():
             return VerifyResult(False, f"{rel} missing")
         try:
-            data = json.loads(p.read_text())
+            data = json.loads(p.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
             return VerifyResult(False, f"{rel} invalid JSON: {exc}")
         if _norm(data) == _norm(expected):
@@ -62,7 +62,7 @@ def _json_file_matches_loose(rel: str, expected, *, ordered: bool = False):
 def _verify_csv_rows(path: Path, expected_header: list[str], expected_rows: list[list[str]]) -> VerifyResult:
     if not path.exists():
         return VerifyResult(False, f"{path.name} missing")
-    lines = [line.strip() for line in path.read_text().splitlines() if line.strip()]
+    lines = [line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
     if not lines:
         return VerifyResult(False, f"{path.name} is empty")
     header = [x.strip() for x in lines[0].split(",")]
@@ -179,7 +179,7 @@ def _verify_task_207(ws: Path) -> VerifyResult:
     if not p.exists():
         return VerifyResult(False, "anomalies.json missing")
     try:
-        data = json.loads(p.read_text())
+        data = json.loads(p.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         return VerifyResult(False, f"anomalies.json invalid JSON: {exc}")
     got_neg = sorted(data.get("negative_stock", []), key=lambda x: x.get("sku", ""))
@@ -328,7 +328,7 @@ def _verify_task_209(ws: Path) -> VerifyResult:
     if not p.exists():
         return VerifyResult(False, "latency_report.json missing")
     try:
-        data = json.loads(p.read_text())
+        data = json.loads(p.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         return VerifyResult(False, f"latency_report.json invalid JSON: {exc}")
     if data.get("durations_ms") != _REPORT_209["durations_ms"]:
@@ -499,7 +499,7 @@ def _verify_task_212(ws: Path) -> VerifyResult:
     if not p.exists():
         return VerifyResult(False, "effective_config.json missing")
     try:
-        data = json.loads(p.read_text())
+        data = json.loads(p.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         return VerifyResult(False, f"effective_config.json invalid JSON: {exc}")
     if data != _EFFECTIVE_212:
@@ -556,12 +556,12 @@ def _verify_task_213(ws: Path) -> VerifyResult:
     if not bl.exists():
         return VerifyResult(False, "broken_links.txt missing")
     try:
-        domains = json.loads(djson.read_text())
+        domains = json.loads(djson.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         return VerifyResult(False, f"domains.json invalid JSON: {exc}")
     if domains != _DOMAINS_213:
         return VerifyResult(False, f"domains.json mismatch: {domains!r} != {_DOMAINS_213!r}")
-    broken = sorted([line.strip() for line in bl.read_text().splitlines() if line.strip()])
+    broken = sorted([line.strip() for line in bl.read_text(encoding="utf-8").splitlines() if line.strip()])
     if broken != _BROKEN_213:
         return VerifyResult(False, f"broken_links mismatch: {broken!r} != {_BROKEN_213!r}")
     return VerifyResult(True, "domains.json and broken_links.txt match expected link audit")
@@ -615,7 +615,7 @@ def _verify_task_214(ws: Path) -> VerifyResult:
     if not p.exists():
         return VerifyResult(False, "dq_report.json missing")
     try:
-        data = json.loads(p.read_text())
+        data = json.loads(p.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         return VerifyResult(False, f"dq_report.json invalid JSON: {exc}")
     if data != _DQ_214:
@@ -668,12 +668,12 @@ def _verify_task_215(ws: Path) -> VerifyResult:
     if not t.exists():
         return VerifyResult(False, "triage.md missing")
     try:
-        summary = json.loads(s.read_text())
+        summary = json.loads(s.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         return VerifyResult(False, f"summary.json invalid JSON: {exc}")
     if summary != _SUMMARY_215:
         return VerifyResult(False, f"summary mismatch: {summary!r} != {_SUMMARY_215!r}")
-    triage = t.read_text().strip()
+    triage = t.read_text(encoding="utf-8").strip()
     if triage != _TRIAGE_215.strip():
         return VerifyResult(False, "triage.md content differs from expected structured report")
     return VerifyResult(True, "summary.json and triage.md match expected TODO/FIXME inventory")
@@ -797,7 +797,7 @@ def _verify_task_218(ws: Path) -> VerifyResult:
     if not p.exists():
         return VerifyResult(False, "runtime_config.json missing")
     try:
-        got = json.loads(p.read_text())
+        got = json.loads(p.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         return VerifyResult(False, f"runtime_config.json invalid JSON: {exc}")
     if got != _RUNTIME_218:

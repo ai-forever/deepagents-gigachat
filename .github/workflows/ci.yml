@@ -6,8 +6,19 @@ on:
 
 jobs:
   quality:
-    name: Quality
-    runs-on: ubuntu-latest
+    name: Quality (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
 
     steps:
       - name: Checkout
@@ -30,39 +41,11 @@ jobs:
       - name: Run tests
         run: uv run pytest
 
+      - name: Verify harness gold solutions
+        run: uv run python .github/scripts/verify_gold_with_annotations.py
+
       - name: Build package
         run: uv build
 
       - name: Check package contents
-        run: |
-          uv run python - <<'PY'
-          from pathlib import Path
-          import tarfile
-          import zipfile
-
-          forbidden = (
-              ".free-code-logs",
-              ".env",
-              ".venv",
-              ".github",
-              "uv.lock",
-              "__pycache__",
-          )
-
-          dist = Path("dist")
-          sdists = list(dist.glob("*.tar.gz"))
-          wheels = list(dist.glob("*.whl"))
-          if len(sdists) != 1 or len(wheels) != 1:
-              raise SystemExit(
-                  f"Expected one sdist and one wheel, got {sdists!r} and {wheels!r}"
-              )
-
-          with tarfile.open(sdists[0]) as package:
-              names = package.getnames()
-          with zipfile.ZipFile(wheels[0]) as package:
-              names.extend(package.namelist())
-
-          matches = [name for name in names if any(part in name for part in forbidden)]
-          if matches:
-              raise SystemExit("Forbidden files in package:\n" + "\n".join(matches))
-          PY
+        run: uv run python .github/scripts/check_package_contents.py

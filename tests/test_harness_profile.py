@@ -6,9 +6,8 @@ import asyncio
 from importlib.metadata import entry_points
 from typing import Any
 
-from langchain_core.messages import ToolMessage
-
 from deepagents.profiles.harness.harness_profiles import _get_harness_profile
+from langchain_core.messages import ToolMessage
 
 from deepagents_gigachat import (
     ShellSafetyMiddleware,

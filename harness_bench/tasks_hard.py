@@ -472,7 +472,7 @@ def _verify_task_116(ws: Path) -> VerifyResult:
     if not p.exists():
         return VerifyResult(False, "active.json missing")
     try:
-        data = json.loads(p.read_text())
+        data = json.loads(p.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         return VerifyResult(False, f"active.json invalid JSON: {exc}")
     if not isinstance(data, list):
@@ -510,7 +510,7 @@ def _verify_task_117(ws: Path) -> VerifyResult:
     if not p.exists():
         return VerifyResult(False, "data.yaml missing")
     try:
-        data = yaml.safe_load(p.read_text())
+        data = yaml.safe_load(p.read_text(encoding="utf-8"))
     except yaml.YAMLError as exc:
         return VerifyResult(False, f"data.yaml invalid YAML: {exc}")
     if data == _J2Y_DATA:
@@ -557,7 +557,7 @@ def _verify_task_118(ws: Path) -> VerifyResult:
     if not p.exists():
         return VerifyResult(False, "tally.json missing")
     try:
-        data = json.loads(p.read_text())
+        data = json.loads(p.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         return VerifyResult(False, f"tally.json invalid JSON: {exc}")
     if not isinstance(data, dict):
@@ -598,7 +598,7 @@ def _verify_task_119(ws: Path) -> VerifyResult:
     if not p.exists():
         return VerifyResult(False, "config.yaml missing")
     try:
-        data = yaml.safe_load(p.read_text())
+        data = yaml.safe_load(p.read_text(encoding="utf-8"))
     except yaml.YAMLError as exc:
         return VerifyResult(False, f"config.yaml invalid YAML: {exc}")
     if not isinstance(data, dict):
@@ -649,7 +649,7 @@ def _verify_task_120(ws: Path) -> VerifyResult:
         return VerifyResult(False, "settings.ini missing")
     parser = configparser.ConfigParser()
     try:
-        parser.read_string(p.read_text())
+        parser.read_string(p.read_text(encoding="utf-8"))
     except configparser.Error as exc:
         return VerifyResult(False, f"settings.ini invalid INI: {exc}")
     if "logging" not in parser.sections():
@@ -698,7 +698,7 @@ def _verify_task_121(ws: Path) -> VerifyResult:
     if not p.exists():
         return VerifyResult(False, "pyproject.toml missing")
     try:
-        data = tomllib.loads(p.read_text())
+        data = tomllib.loads(p.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as exc:
         return VerifyResult(False, f"pyproject.toml invalid TOML: {exc}")
     deps = data.get("project", {}).get("dependencies")
@@ -748,7 +748,7 @@ def _verify_task_122(ws: Path) -> VerifyResult:
     if not p.exists():
         return VerifyResult(False, "config.json missing")
     try:
-        data = json.loads(p.read_text())
+        data = json.loads(p.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         return VerifyResult(False, f"config.json invalid JSON: {exc}")
     if data == _Y2J_DATA:
@@ -1211,7 +1211,7 @@ def _verify_task_136(ws: Path) -> VerifyResult:
     p = ws / "files.txt"
     if not p.exists():
         return VerifyResult(False, "files.txt missing")
-    raw = [line.strip() for line in p.read_text().splitlines() if line.strip()]
+    raw = [line.strip() for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]
     # Accept either bare filenames or relative paths starting with project/.
     normalised = {line.split("/")[-1] for line in raw}
     if normalised != _TODO_NAMES:
@@ -1287,7 +1287,7 @@ def _verify_task_138(ws: Path) -> VerifyResult:
     p = ws / "with_api_key.txt"
     if not p.exists():
         return VerifyResult(False, "with_api_key.txt missing")
-    raw = [line.strip() for line in p.read_text().splitlines() if line.strip()]
+    raw = [line.strip() for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]
     normalised = {line.split("/")[-1] for line in raw}
     if normalised != _YAML_NAMES_WITH_KEY:
         return VerifyResult(
@@ -1377,7 +1377,7 @@ def _verify_task_140(ws: Path) -> VerifyResult:
     p = ws / "emails.txt"
     if not p.exists():
         return VerifyResult(False, "emails.txt missing")
-    raw = [line.strip() for line in p.read_text().splitlines() if line.strip()]
+    raw = [line.strip() for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]
     if set(raw) != _EMAILS_ALL:
         return VerifyResult(
             False,
@@ -1487,7 +1487,7 @@ def _verify_task_143(ws: Path) -> VerifyResult:
     p = ws / "largest.txt"
     if not p.exists():
         return VerifyResult(False, "largest.txt missing")
-    actual = p.read_text().strip()
+    actual = p.read_text(encoding="utf-8").strip()
     expected_variants = {_BIG_BIGGEST, f"big_project/{_BIG_BIGGEST}"}
     if actual in expected_variants:
         return VerifyResult(True, f"largest.txt names the right file: {actual}")
@@ -1532,7 +1532,7 @@ def _verify_task_144(ws: Path) -> VerifyResult:
     p = ws / "duplicates.txt"
     if not p.exists():
         return VerifyResult(False, "duplicates.txt missing")
-    raw = {line.strip() for line in p.read_text().splitlines() if line.strip()}
+    raw = {line.strip() for line in p.read_text(encoding="utf-8").splitlines() if line.strip()}
     if raw == _DUP_NAMES:
         return VerifyResult(True, "duplicates.txt lists exactly the duplicate function names")
     return VerifyResult(
@@ -1640,7 +1640,7 @@ def _verify_task_147(ws: Path) -> VerifyResult:
     p = ws / "not_found.log"
     if not p.exists():
         return VerifyResult(False, "not_found.log missing")
-    actual = p.read_text().strip()
+    actual = p.read_text(encoding="utf-8").strip()
     expected = _STATUS_GOLD.strip()
     if actual == expected:
         return VerifyResult(True, "not_found.log has the three 404 lines")
@@ -1755,7 +1755,7 @@ def _verify_task_149(ws: Path) -> VerifyResult:
     if not p.exists():
         return VerifyResult(False, "products.json missing")
     try:
-        data = json.loads(p.read_text())
+        data = json.loads(p.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         return VerifyResult(False, f"products.json invalid JSON: {exc}")
     if not isinstance(data, list):
@@ -1807,7 +1807,7 @@ def _verify_task_150(ws: Path) -> VerifyResult:
         return VerifyResult(False, "sum.py missing")
     if not (ws / "total.txt").exists():
         return VerifyResult(False, "total.txt missing")
-    actual = (ws / "total.txt").read_text().strip()
+    actual = (ws / "total.txt").read_text(encoding="utf-8").strip()
     if actual != str(_TX150_TOTAL):
         return VerifyResult(False, f"total.txt is {actual!r}, expected {_TX150_TOTAL!r}")
     return VerifyResult(True, f"sum.py exists and total.txt == {_TX150_TOTAL}")

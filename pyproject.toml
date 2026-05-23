@@ -63,6 +63,9 @@ dev = [
     # `deepagents-gigachat` don't need it.
     "openpyxl>=3.1",
     "langchain-openai>=1.2.1",
+    # Windows runners do not ship an IANA timezone database, but memory task
+    # 223's gold solution uses zoneinfo.ZoneInfo("Europe/Moscow").
+    "tzdata>=2025.2",
 ]
 
 [tool.ruff]
