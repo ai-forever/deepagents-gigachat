@@ -183,9 +183,9 @@ rows use Claude Code CLI v2.1.119.
 | 2026-05-21 | `free-code` 2.1.119 | **Claude Opus 4.7** | yes (built-in + AGENTS.md inject) | **231 / 231** | **100 %** |
 | 2026-05-22 | `free-code` 2.1.119 | **Claude Haiku 4.5** | yes (built-in + AGENTS.md inject) | **222 / 231** | **96.1 %** |
 | 2026-05-22 | `deepagents` | **GigaChat-3-Ultra** (PROM, deepagents 0.6.3 + langgraph 1.2.1) | **yes (v9 + memory wiring)** | **195 / 231** | **84.4 %** |
-| 2026-05-23 | `deepagents` | **GigaChat-3-Ultra** (PROM, deepagents 0.6.3) | **yes (v9 + AgentsMdInjectMiddleware)** | **194 / 231** | **84.0 %** |
+| 2026-05-23 | `deepagents` | **GigaChat-3-Ultra** (PROM, deepagents 0.6.3) | **yes (v10 = v9 + `AgentsMdInjectMiddleware`)** | **194 / 231** | **84.0 %** |
 | 2026-05-22 | `deepagents` | GigaChat-3-Ultra (PROM, deepagents 0.6.2) | no (pkg uninstalled + entry-point disabled) | 154 / 231 | 66.7 % |
-| 2026-05-23 | `ouroboros` | GigaChat-3-Ultra (PROM) | no | 147 / 231 | 63.6 % |
+| 2026-05-23 | `ouroboros` | GigaChat-3-Ultra (PROM, native function-calling mode) | no | 136 / 231 | 58.9 % |
 | 2026-05-22 | `deepagents` | MiniMax-M2 (via OpenRouter) | no | 209 / 231 | 90.5 % |
 | 2026-05-22 | `deepagents` | DeepSeek V3.2-exp (via OpenRouter) | no | 208 / 231 | 90.0 % |
 | 2026-05-22 | `deepagents` | GLM-4.6 (via OpenRouter) | no | 206 / 231 | 89.2 % |
@@ -237,6 +237,15 @@ prompts were clarified and the stack was upgraded to deepagents 0.6.3
 `runner.py` does not reach GigaChat-3-Ultra's prompt in a form the
 model acts on (Opus reads it just fine via `--append-system-prompt`
 into Claude Code).
+
+### Experiments tried but not adopted
+
+Profile changes that looked promising on paper but didn't survive
+end-to-end measurement (counting-strictness prompt rewrite,
+`ForbiddenLeftoverMiddleware`) are written up in
+[`../EXPERIMENTS_TRIED.md`](../EXPERIMENTS_TRIED.md) — hypothesis,
+implementation, bench delta, and what we learned. Useful before
+proposing the same shape twice.
 
 ### Historical results
 
