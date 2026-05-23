@@ -183,6 +183,7 @@ rows use Claude Code CLI v2.1.119.
 | 2026-05-21 | `free-code` 2.1.119 | **Claude Opus 4.7** | yes (built-in + AGENTS.md inject) | **231 / 231** | **100 %** |
 | 2026-05-22 | `free-code` 2.1.119 | **Claude Haiku 4.5** | yes (built-in + AGENTS.md inject) | **222 / 231** | **96.1 %** |
 | 2026-05-22 | `deepagents` | **GigaChat-3-Ultra** (PROM, deepagents 0.6.3 + langgraph 1.2.1) | **yes (v9 + memory wiring)** | **195 / 231** | **84.4 %** |
+| 2026-05-23 | `deepagents` | **GigaChat-3-Ultra** (PROM, deepagents 0.6.3) | **yes (v9 + AgentsMdInjectMiddleware)** | **194 / 231** | **84.0 %** |
 | 2026-05-22 | `deepagents` | GigaChat-3-Ultra (PROM, deepagents 0.6.2) | no (pkg uninstalled + entry-point disabled) | 154 / 231 | 66.7 % |
 | 2026-05-23 | `ouroboros` | GigaChat-3-Ultra (PROM) | no | 147 / 231 | 63.6 % |
 | 2026-05-22 | `deepagents` | MiniMax-M2 (via OpenRouter) | no | 209 / 231 | 90.5 % |

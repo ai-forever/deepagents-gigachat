@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
+from pathlib import Path
 from typing import Any
 
 from deepagents import (
@@ -20,6 +22,30 @@ from pydantic import Field
 from deepagents_gigachat.prompts import build_system_prompt
 
 
+# Thread-local workspace path used by `AgentsMdInjectMiddleware` to find the
+# `AGENTS.md` fixture for the current task. Set by the runner (or any caller
+# of `set_workspace_path`) before `agent.invoke(...)` so concurrent tasks in
+# a ThreadPoolExecutor each see their own workspace.
+_workspace_ctx = threading.local()
+
+
+def set_workspace_path(workspace: Path | str | None) -> None:
+    """Pin the workspace for the current thread.
+
+    Callers (typically a benchmark runner or an agent driver) set this
+    before invoking the agent so `AgentsMdInjectMiddleware` can locate the
+    workspace `AGENTS.md` to inject as ambient context.
+    """
+    if workspace is None:
+        _workspace_ctx.workspace = None
+    else:
+        _workspace_ctx.workspace = Path(workspace)
+
+
+def _get_workspace_path() -> Path | None:
+    return getattr(_workspace_ctx, "workspace", None)
+
+
 @tool("think")
 def _think(thought: str = Field(..., description="A thought to think about.")) -> str:
     """Use this tool as scratchpad to structure intermediate reasoning."""
@@ -30,6 +56,51 @@ class ThinkToolMiddleware(AgentMiddleware):
     """Inject the local `think` tool into the default toolset."""
 
     tools = [_think]
+
+
+class AgentsMdInjectMiddleware(AgentMiddleware):
+    """Inject workspace `AGENTS.md` into the conversation as ambient context.
+
+    The convention `AGENTS.md` (Codex CLI, Cursor, deepagents, etc.) puts
+    repo-/workspace-level instructions for the agent in a markdown file at
+    the workspace root. Stock deepagents reads it lazily via the `memory=`
+    parameter — the model has to actively call `read_file` on `/AGENTS.md`
+    to see it. Some models (notably GigaChat) don't reliably reach for it
+    on their own, so memory tasks silently no-op.
+
+    This middleware reads `AGENTS.md` from the per-thread workspace and
+    injects it as a `HumanMessage` at the start of the conversation, so the
+    instructions are unconditionally part of the prompt rather than tucked
+    behind an explicit read. Callers set the workspace via
+    `set_workspace_path(...)` before invoking the agent; if no workspace is
+    set or no `AGENTS.md` is present, the middleware is a no-op.
+    """
+
+    name = "AgentsMdInjectMiddleware"
+
+    def before_model(self, state: Any, runtime: Runtime[Any]) -> dict[str, Any] | None:  # noqa: ARG002
+        workspace = _get_workspace_path()
+        if workspace is None:
+            return None
+        agents_md = workspace / "AGENTS.md"
+        if not agents_md.exists():
+            return None
+        messages = state.get("messages") if isinstance(state, dict) else getattr(state, "messages", None)
+        marker = "[AGENTS-MD]"
+        for msg in messages or []:
+            content = getattr(msg, "content", "") or ""
+            if isinstance(content, str) and marker in content:
+                return None  # already injected for this conversation
+        try:
+            text = agents_md.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return None
+        injected = (
+            f"{marker} workspace conventions follow — treat as ambient "
+            f"project-level instructions you must respect alongside the "
+            f"user's task:\n\n{text}"
+        )
+        return {"messages": [HumanMessage(content=injected)]}
 
 
 class ToolContractMiddleware(AgentMiddleware):
@@ -373,6 +444,7 @@ def register_harness(profile_variant: str | None = None, tool_contract: str | No
     contract = tool_contract or os.getenv("DEEPAGENTS_GIGACHAT_TOOL_CONTRACT")
     middleware: list[AgentMiddleware] = [
         ThinkToolMiddleware(),
+        AgentsMdInjectMiddleware(),
         ShellSafetyMiddleware(),
         LoopBreakerMiddleware(),
     ]

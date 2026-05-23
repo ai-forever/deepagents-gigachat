@@ -118,6 +118,8 @@ def run_task(
         task.setup(workspace_path)
         started = time.monotonic()
         try:
+            from deepagents_gigachat import set_workspace_path
+            set_workspace_path(workspace_path)
             agent = build_agent(workspace_path, recursion_limit=recursion_limit)
             agent.invoke({"messages": [{"role": "user", "content": task.prompt}]})
         except Exception:  # noqa: BLE001 — log and surface as failure
