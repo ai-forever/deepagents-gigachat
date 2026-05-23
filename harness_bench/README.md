@@ -181,8 +181,17 @@ rows use Claude Code CLI v2.1.119.
 | Date | Runner | Model | Harness adapt | Result | % |
 | --- | --- | --- | --- | --- | --- |
 | 2026-05-21 | `free-code` 2.1.119 | **Claude Opus 4.7** | yes (built-in + AGENTS.md inject) | **231 / 231** | **100 %** |
+| 2026-05-22 | `free-code` 2.1.119 | **Claude Haiku 4.5** | yes (built-in + AGENTS.md inject) | **222 / 231** | **96.1 %** |
 | 2026-05-22 | `deepagents` | **GigaChat-3-Ultra** (PROM, deepagents 0.6.3 + langgraph 1.2.1) | **yes (v9 + memory wiring)** | **195 / 231** | **84.4 %** |
 | 2026-05-22 | `deepagents` | GigaChat-3-Ultra (PROM, deepagents 0.6.2) | no (pkg uninstalled + entry-point disabled) | 154 / 231 | 66.7 % |
+| 2026-05-23 | `ouroboros` | GigaChat-3-Ultra (PROM) | no | 147 / 231 | 63.6 % |
+| 2026-05-22 | `deepagents` | MiniMax-M2 (via OpenRouter) | no | 209 / 231 | 90.5 % |
+| 2026-05-22 | `deepagents` | DeepSeek V3.2-exp (via OpenRouter) | no | 208 / 231 | 90.0 % |
+| 2026-05-22 | `deepagents` | GLM-4.6 (via OpenRouter) | no | 206 / 231 | 89.2 % |
+| 2026-05-22 | `deepagents` | DeepSeek V4 Flash (284B-A13B MoE, via OpenRouter) | no | 186 / 231 | 80.5 % |
+| 2026-05-22 | `deepagents` | OpenAI gpt-oss-120b (120B dense, via OpenRouter) | no | 165 / 231 | 71.4 % |
+| 2026-05-22 | `deepagents` | Qwen3-235B-A22B-Instruct-2507 (235B-A22B MoE, via OpenRouter) | no | 162 / 231 | 70.1 % |
+| 2026-05-22 | `deepagents` | GLM-4-32B (32B dense, via OpenRouter) | no | 76 / 231 | 32.9 % |
 
 The GigaChat-3-Ultra rows quantify the contribution of the
 `deepagents_gigachat` profile on the current bench: **+41 tasks (154 →
