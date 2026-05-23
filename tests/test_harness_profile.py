@@ -6,9 +6,8 @@ import asyncio
 from importlib.metadata import entry_points
 from typing import Any
 
-from langchain_core.messages import ToolMessage
-
 from deepagents.profiles.harness.harness_profiles import _get_harness_profile
+from langchain_core.messages import ToolMessage
 
 from deepagents_gigachat import (
     ShellSafetyMiddleware,
@@ -63,6 +62,9 @@ def test_register_harness_uses_both_provider_aliases(monkeypatch: Any) -> None:
     assert "Never start with `/`" in profile.base_system_prompt
     assert "single-quoted heredoc" in profile.base_system_prompt
     assert "relative path" in profile.tool_description_overrides["write_file"]
+    assert "AgentsMdInjectMiddleware" not in {
+        type(middleware).__name__ for middleware in profile.extra_middleware
+    }
 
 
 def test_register_harness_can_use_external_runtime_profile(monkeypatch: Any) -> None:

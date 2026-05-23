@@ -232,18 +232,11 @@ Latest contribution of this plugin on that bench, against
 | Configuration                          | PASS / 231 | %      | Δ                  |
 | -------------------------------------- | ---------- | ------ | ------------------ |
 | stock `deepagents`, no profile         | 154 / 231  | 66.7 % | —                  |
-| `deepagents` + this plugin (v10)       | 194 / 231  | 84.0 % | +40 (+17.3 pp)     |
+| `deepagents` + this plugin (v9)        | 195 / 231  | 84.4 % | +41 (+17.7 pp)     |
 
-v10 = v9 (`ThinkToolMiddleware` + `ShellSafetyMiddleware` +
+v9 = `ThinkToolMiddleware` + `ShellSafetyMiddleware` +
 `ToolContractMiddleware` + `LoopBreakerMiddleware` + the
-`base_system_prompt` and tool description overrides) plus
-`AgentsMdInjectMiddleware`, which eagerly injects workspace `AGENTS.md`
-into the conversation so weaker models that don't reach for
-`memory=["/AGENTS.md"]` on their own still see the project conventions.
-
-Two profile changes were prototyped on the bench in the same session
-and reverted — see [`EXPERIMENTS_TRIED.md`](EXPERIMENTS_TRIED.md) for
-the write-up.
+`base_system_prompt` and tool description overrides.
 
 ## Lint
 
@@ -254,4 +247,3 @@ uv run ruff check .
 uv run pytest
 uv build
 ```
-
