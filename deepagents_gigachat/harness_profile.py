@@ -21,7 +21,6 @@ from pydantic import Field
 
 from deepagents_gigachat.prompts import build_system_prompt
 
-
 # Thread-local workspace path used by `AgentsMdInjectMiddleware` to find the
 # `AGENTS.md` fixture for the current task. Set by the runner (or any caller
 # of `set_workspace_path`) before `agent.invoke(...)` so concurrent tasks in
