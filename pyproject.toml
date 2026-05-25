@@ -1,6 +1,6 @@
 [project]
 name = "deepagents-gigachat"
-version = "0.0.1a4"
+version = "0.0.1"
 description = "DeepAgents harness profile for GigaChat"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -10,7 +10,7 @@ authors = [
 ]
 keywords = ["deepagents", "gigachat", "langchain", "agent", "harness-profile", "plugin"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",

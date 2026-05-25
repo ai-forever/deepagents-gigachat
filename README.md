@@ -29,7 +29,7 @@ Once installed, the profile is registered automatically via the
 uv sync
 ```
 
-Once published to PyPI, downstream users can install with:
+Downstream users can install the published package from PyPI with:
 
 ```bash
 pip install deepagents-gigachat
