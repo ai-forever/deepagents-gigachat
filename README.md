@@ -231,8 +231,8 @@ Latest contribution of this plugin on that bench, against
 
 | Configuration                          | PASS / 231 | %      | Δ                  |
 | -------------------------------------- | ---------- | ------ | ------------------ |
-| stock `deepagents`, no profile         | 154 / 231  | 66.7 % | —                  |
-| `deepagents` + this plugin (v9)        | 195 / 231  | 84.4 % | +41 (+17.7 pp)     |
+| stock `deepagents`, no profile         | 164 / 231  | 71.0 % | —                  |
+| `deepagents` + this plugin (v9)        | 195 / 231  | 84.4 % | +31 (+13.4 pp)     |
 
 v9 = `ThinkToolMiddleware` + `ShellSafetyMiddleware` +
 `ToolContractMiddleware` + `LoopBreakerMiddleware` + the

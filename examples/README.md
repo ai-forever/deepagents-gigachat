@@ -1,35 +1,35 @@
-# Примеры
+# Examples
 
-Здесь лежат запускаемые примеры использования `deepagents-gigachat`
-вместе с библиотекой [`deepagents`](https://github.com/langchain-ai/deepagents).
+Runnable examples for using `deepagents-gigachat` with
+[`deepagents`](https://github.com/langchain-ai/deepagents).
 
-## Подготовка
+## Setup
 
-1. Установи зависимости в корне репозитория:
+1. Install dependencies from the repository root:
 
    ```bash
    uv sync
    ```
 
-2. Положи учётные данные GigaChat в `.env` или экспортируй в shell:
+2. Put GigaChat credentials in `.env` or export them in your shell:
 
    ```bash
-   export GIGACHAT_CREDENTIALS="<твой ключ авторизации>"
-   # либо
-   export GIGACHAT_USER="<логин>"
-   export GIGACHAT_PASSWORD="<пароль>"
+   export GIGACHAT_CREDENTIALS="<your authorization key>"
+   # or
+   export GIGACHAT_USER="<login>"
+   export GIGACHAT_PASSWORD="<password>"
    ```
 
-## Запуск
+## Run
 
-Из корня репозитория:
+From the repository root:
 
 ```bash
 uv run python examples/basic_agent.py
 ```
 
-## Список примеров
+## Example List
 
-| Файл | О чём |
+| File | Description |
 | --- | --- |
-| `basic_agent.py` | Минимальный агент: создаём `GigaChat`, оборачиваем в `create_deep_agent`, задаём один вопрос. |
+| `basic_agent.py` | Minimal agent: create `GigaChat`, wrap it with `create_deep_agent`, and ask one question. |
