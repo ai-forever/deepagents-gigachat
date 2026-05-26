@@ -1,8 +1,14 @@
 # deepagents-gigachat
 
+![harness-bench-fast: +13.4 pp with the GigaChat profile](docs/assets/benchmark_profile_uplift.png)
+
 A [`HarnessProfile`](https://docs.langchain.com/oss/python/deepagents/profiles#harness-profiles)
 for [`deepagents`](https://github.com/langchain-ai/deepagents) tuned for
-[GigaChat](https://giga.chat/) models.
+[GigaChat](https://giga.chat/) models. On the
+[`harness-bench-fast`](https://github.com/ai-forever/harness-bench-fast)
+231-task agent benchmark the profile lifts `GigaChat-3-Ultra` from
+**164 / 231 (71.0 %)** to **195 / 231 (84.4 %)** — see the
+[Benchmark](#benchmark) section for the methodology and full results.
 
 The profile replaces the default `deepagents` system prompt, rewrites the
 descriptions of file and shell tools (`ls`, `read_file`, `write_file`, `glob`,

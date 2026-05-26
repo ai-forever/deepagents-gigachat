@@ -224,3 +224,6 @@ __marimo__/
 # harness_bench: raw run logs and ad-hoc API dumps (kept locally, summarized in README)
 harness_bench/runs/
 EXPERIMENTS_PLAN.md
+
+# Local-only generator for the README hero chart; the rendered PNG is committed.
+docs/assets/_make_benchmark_chart.py
