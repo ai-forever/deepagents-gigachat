@@ -68,7 +68,7 @@ Each fact on its own line: `- Key: Value`. Keep existing facts; only add/change/
 
 NATIVE_FS_PROMPT = """## Files
 - For each file you need to change: `read_file` once, then make all edits in ONE `edit_file` (or one `write_file`). Do not re-read a file you just wrote unless a tool reported an error.
-- Use relative paths (`foo.py`, `src/foo.py`). Never start with `/`.
+- Filesystem tools use virtual absolute paths rooted at the workspace: `/foo.py`, `/src/foo.py`. Do NOT use host absolute paths like `/Users/name/project/foo.py`.
 - `read_file` shows lines with a `<line_no>\\t` prefix. That prefix is display only — strip it before using the text in `old_string`, `new_string`, or `write_file` content.
 - Prefer `edit_file` for small surgical changes; use `write_file` for new files or full rewrites.
 - For `edit_file`, make `old_string` unique by including a couple of lines of surrounding context. Match indentation and blank lines exactly.
@@ -110,16 +110,16 @@ PYTHON_PROMPT = """\
 ## Python for aggregations / CSV / JSONL / SQLite / XLSX
 - **CRITICAL: Python `python -c "..."` one-liners only support EXPRESSIONS chained with `;`, not statements.** `for v in xs: s += v` is a SyntaxError after `;`. Generator expressions inside `sum(...)` / `list(...)` ARE OK.
 - For ANY logic that needs a loop, mutation, multi-line, or `if/else` block (e.g. cumulative sums, group-by, pivot, filtering with side effects, writing per-row output) — DO NOT chain it after `;`. Instead, use ONE of these two patterns:
-  - **Preferred — write a script file**: `write_file path="run.py" content="<full multi-line python>"`, then `execute python run.py`. Same idea for sqlite/awk scripts. Reuse the same script name `run.py` if you need to revise.
+  - **Preferred — write a script file**: `write_file path="/run.py" content="<full multi-line python>"`, then `execute python run.py`. Same idea for sqlite/awk scripts. Reuse the same script name `/run.py` if you need to revise.
   - **Alternative — heredoc**: `execute` `python <<'PY'\\n<multi-line code>\\nPY`. Single-quoted `'PY'` so `$`/backslashes aren't expanded.
 - Match the expected output format — if rows are ints, write `str(int(t))`, not `str(float(t))`.
 - **One-line `sum/min/max/mean/count`** is fine via generator expression. Examples:
   - CSV sum: `execute python -c "import csv; t=sum(int(r['n']) for r in csv.DictReader(open('data.csv'))); open('total.txt','w').write(str(t))"`
   - JSONL sum: `execute python -c "import json; t=sum(json.loads(l)['amount'] for l in open('events.jsonl')); open('total.txt','w').write(str(int(t)))"`
 - **Anything else — write a script.** Example for cumulative sum:
-  - `write_file run.py "import csv\\nrows=list(csv.DictReader(open('numbers.csv')))\\nvals=[int(r['value']) for r in rows]\\nc=0\\nout=['value,cumsum']\\nfor v in vals:\\n    c+=v\\n    out.append(f'{v},{c}')\\nopen('cumulative.csv','w').write('\\\\n'.join(out)+'\\\\n')"`
+  - `write_file /run.py "import csv\\nrows=list(csv.DictReader(open('numbers.csv')))\\nvals=[int(r['value']) for r in rows]\\nc=0\\nout=['value,cumsum']\\nfor v in vals:\\n    c+=v\\n    out.append(f'{v},{c}')\\nopen('cumulative.csv','w').write('\\\\n'.join(out)+'\\\\n')"`
   - then `execute python run.py`.
-- If you see `SyntaxError: invalid syntax` from `python -c`, the most common cause is a `for`/`if`/`def`/`with` statement after `;`. Do NOT retry the same `-c`; SWITCH to `write_file run.py` + `execute python run.py`.
+- If you see `SyntaxError: invalid syntax` from `python -c`, the most common cause is a `for`/`if`/`def`/`with` statement after `;`. Do NOT retry the same `-c`; SWITCH to `write_file /run.py` + `execute python run.py`.
 - **After running any script, `read_file` the output to confirm it is correct.** If empty or wrong, debug and rerun — do not submit broken output.
 """
 
