@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from pathlib import Path
 from typing import Any
 
 from deepagents import (
@@ -365,6 +366,20 @@ def _tool_description_overrides(profile_variant: str) -> dict[str, str]:
             "of required outputs (e.g., `ls -l`, `wc -l`) before finishing."
         ),
     }
+
+
+_workspace_path: Path | None = None
+
+
+def set_workspace_path(path: Path | str) -> None:
+    """Store the current task workspace so middleware can locate workspace files."""
+    global _workspace_path  # noqa: PLW0603
+    _workspace_path = Path(path) if path is not None else None
+
+
+def get_workspace_path() -> Path | None:
+    """Return the workspace path set by the runner, if any."""
+    return _workspace_path
 
 
 def register_harness(profile_variant: str | None = None, tool_contract: str | None = None) -> None:

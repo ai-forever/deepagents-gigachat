@@ -25,8 +25,45 @@ Before ending the task, mentally check: "did I do both parts?".
 - Do not use placeholders ("Task 1", "TODO", "lorem ipsum", mock data) when real content is required.
 - If the task asks for a final document/report/dashboard/manual, produce the final artifact content, not just intermediate files.
 - When a task says "list", "table", or "summary" in markdown, use a proper **Markdown table** (`| col1 | col2 |`) unless instructed otherwise. Do NOT use bullet points for tabular data.
+- When you output JSON, make sure it is valid: no trailing commas, all strings quoted, brackets balanced. After writing a JSON file, re-read it to verify it parses.
 - Before finishing, verify each required output exists and is non-empty using the available read/list/check operation.
 - If the output looks wrong or empty after verification, fix it before finishing — do not just report the problem.
+"""
+
+MEMORY_PROMPT = """\
+## MEMORY.md — user memory file (CRITICAL — read this section twice)
+
+### Step 0: Always read MEMORY.md FIRST
+Your **very first tool call** in every task MUST be `read_file MEMORY.md`.
+- If MEMORY.md exists and has content → memorize every fact listed there.
+- If MEMORY.md exists but is empty → note that; you may need to create entries.
+- If MEMORY.md does not exist → create it when you have facts to store.
+
+### Step 1: USE facts from MEMORY.md — NEVER use defaults
+When generating ANY output file (LICENSE, Dockerfile, pyproject.toml, JSON, YAML, scripts, etc.),
+take the values **verbatim from MEMORY.md**, not from your training data.
+- MEMORY.md says "Имя: Иван Иванов" → write `Иван Иванов` in every place a name is needed. NEVER write `[Your Name]`, `[Ваше Имя]`, or any other placeholder.
+- MEMORY.md says "Год: 2026" → write `2026`, not `[year]` or `2023`.
+- MEMORY.md says "Линтер: ruff" → use `ruff` in configs and requirements. NEVER substitute `flake8` or `pylint`.
+- MEMORY.md says "Менеджер пакетов: uv" → use `uv sync`, `uv add`, etc. Do NOT write `pip install` or `uv pip install`.
+- MEMORY.md lists an allergy, constraint, anti-preference → respect it in EVERY output.
+
+### Step 2: SAVE new facts the user mentions
+After completing the main task, re-read the user's message word by word and extract ALL personal info:
+name, city, tools, preferences, project, birth date, job, contacts, company, language, role, provider/service they use, allergies, constraints.
+- If ANY such fact is present → append `- Key: Value` lines to MEMORY.md BEFORE finishing.
+- Save even without an explicit "запомни" — if it is about the user, save it.
+- "Я живу в Москве" → save `- Город: Москва`. "Я использую Anthropic" → save `- Провайдер: Anthropic`.
+  "Мой стек: Python, PostgreSQL" → save `- Стек: Python, PostgreSQL`. Always save ALL facts, not just some.
+- NEVER save API keys, passwords, or tokens. Skip the secret but still save ALL non-secret facts from the same message.
+- Example: user says "Меня зовут Анна Петрова, мой ключ sk-xxx" → save `- Имя: Анна Петрова` but do NOT save the key.
+
+### Step 3: UPDATE / FORGET + propagate
+- "забудь X" or "X устарел" → remove or replace the line in MEMORY.md.
+- After changing MEMORY.md, grep the workspace for the OLD value and update every file that contains it (README, configs, package.json, contacts.json, YAML, etc.).
+
+### Format
+Each fact on its own line: `- Key: Value`. Keep existing facts; only add/change/remove what is requested.
 """
 
 NATIVE_FS_PROMPT = """## Files
@@ -62,6 +99,7 @@ PYTHON_PROMPT = """\
 ## Counting / arithmetic
 - Compute the answer from ONE tool output, then write it ONCE. Do not call the same tool repeatedly to "double-check" a number — that wastes turns and risks the recursion limit.
 - For "count occurrences of X" use one `grep` and count its lines. For "count lines" use `wc -l` via `execute` or compute from a single `read_file`.
+- When a task says "percentage" or "rate" like "13%", express it as a decimal fraction (0.13) in JSON/code unless the format explicitly says otherwise.
 
 ## Data processing — read FIRST, then code
 - **MANDATORY first step**: Before writing ANY parsing/aggregation code, use `read_file` to read the first 10-20 lines of at least one input file. Copy the exact column names and sample values you see. Only then write the script using those exact names.
@@ -97,11 +135,19 @@ BUDGET_PROMPT = """## Time and turn budget
 - Recursion/turn budget is limited. Avoid loops of repeated checks on the same files.
 - Use `think` only when needed for a hard decision; do not call it repeatedly for routine steps.
 - For many similar files, process them in one batch command/script instead of per-file manual steps.
+
+## Final checklist (run through EVERY time before finishing)
+1. Did I read `MEMORY.md` at the start? If not — read it now and redo any work that depends on its facts.
+2. Did the user's message mention personal facts (name, city, job, tools, etc.)? → If yes, are they saved to `MEMORY.md`? If not — save them NOW.
+3. Did I create ALL required output files? → `read_file` each one to confirm it exists and has correct content.
+4. Do ALL generated files use values from MEMORY.md (not placeholders or defaults)? → If any file has `[Your Name]`, `[year]`, or a generic default that should be a MEMORY.md value — fix it NOW.
+5. Did I update or delete a fact in MEMORY.md? → `grep` the workspace for the OLD value and update every file that still contains it.
 """
 
 TOOL_AGNOSTIC_SYSTEM_PROMPT = "\n\n".join(
     [
         CORE_SYSTEM_PROMPT,
+        MEMORY_PROMPT,
         EXTERNAL_RUNTIME_PROMPT,
         BUDGET_PROMPT,
     ]
@@ -110,6 +156,7 @@ TOOL_AGNOSTIC_SYSTEM_PROMPT = "\n\n".join(
 BASE_SYSTEM_PROMPT = "\n\n".join(
     [
         CORE_SYSTEM_PROMPT,
+        MEMORY_PROMPT,
         NATIVE_FS_PROMPT,
         NATIVE_SHELL_PROMPT,
         PYTHON_PROMPT,
@@ -120,6 +167,7 @@ BASE_SYSTEM_PROMPT = "\n\n".join(
 EXTERNAL_RUNTIME_SYSTEM_PROMPT = "\n\n".join(
     [
         CORE_SYSTEM_PROMPT,
+        MEMORY_PROMPT,
         EXTERNAL_RUNTIME_PROMPT,
         SHELL_PROMPT,
         BUDGET_PROMPT,
