@@ -387,3 +387,8 @@ def register_harness(profile_variant: str | None = None, tool_contract: str | No
 
     for provider_key in ("gigachat", "giga"):
         register_harness_profile(provider_key, profile)
+    print(
+        "[deepagents-gigachat] Harness profile loaded "
+        f"(providers=gigachat,giga; variant={variant}; "
+        f"tool_contract={'on' if bool(contract) else 'off'})"
+    )

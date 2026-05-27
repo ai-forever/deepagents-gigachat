@@ -44,7 +44,7 @@ pip install deepagents-gigachat
 ## Configuration
 
 Provide one of the authentication options in your shell environment. If your
-launcher loads dotenv files, for example `deepagents-cli`, these values can also
+launcher loads dotenv files, for example `deepagents-code`, these values can also
 live in `.env`:
 
 - `GIGACHAT_CREDENTIALS`
@@ -86,19 +86,24 @@ The package entry point is named `gigachat` for discovery. The harness profile
 is registered under both provider keys: `gigachat` for model specs such as
 `gigachat:GigaChat-3-Ultra`, and `giga` as a compatibility alias.
 
-## Use With `deepagents-cli`
+For a minimal inline `create_deep_agent` + `GigaChat` snippet, see
+[Examples](#examples). It works as long as your GigaChat credentials are
+available in environment variables (`GIGACHAT_CREDENTIALS` or
+`GIGACHAT_USER` + `GIGACHAT_PASSWORD`).
 
-Step-by-step setup for using GigaChat as the default model in the
-`deepagents` CLI through its config file.
+## Use With `deepagents-code`
 
-### 1. Install the CLI, the GigaChat provider, and this plugin
+Step-by-step setup for using GigaChat as the default model in
+`deepagents-code` through its config file.
 
-All three must end up in the **same** Python environment so that the CLI
+### 1. Install `deepagents-code`, the GigaChat provider, and this plugin
+
+All three must end up in the **same** Python environment so that `deepagents-code`
 can both construct a `GigaChat` model and discover the harness profile
 via the `deepagents.harness_profiles` entry point:
 
 ```bash
-uv pip install deepagents-cli langchain-gigachat deepagents-gigachat
+uv tool install deepagents-code --with langchain-gigachat,deepagents-gigachat
 ```
 
 (or `pip install ...` if you're not using `uv`).
@@ -124,7 +129,7 @@ export GIGACHAT_PASSWORD="<your client secret>"
 ```
 
 You can also put either pair into a `.env` file next to where you launch
-the CLI — `deepagents` reads `.env` on startup. The plugin itself never
+`deepagents-code` — it reads `.env` on startup. The plugin itself never
 parses these variables: `langchain-gigachat` picks them up when it
 constructs the model.
 
@@ -135,13 +140,13 @@ first) and put the snippet below into it. Each block is annotated.
 
 ```toml
 [models]
-# The model used when you launch `deepagents` with no extra flags.
+# The model used when you launch `deepagents-code` with no extra flags.
 # Format: "<provider>:<model name>". The provider key here ("gigachat")
 # is the same one this plugin registers its harness profile under.
 default = "gigachat:GigaChat-3-Ultra"
 
 [models.providers.gigachat]
-# Models exposed to the CLI's "/model" picker. Add or remove freely.
+# Models exposed to the "/model" picker. Add or remove freely.
 models = [
     "GigaChat-3-Ultra",
     "GigaChat-2-Max",
@@ -149,8 +154,8 @@ models = [
     "GigaChat-Pro",
     "GigaChat",
 ]
-# Tells the CLI which Python class to instantiate when a `gigachat:*`
-# spec is requested.
+# Tells `deepagents-code` which Python class to instantiate when a
+# `gigachat:*` spec is requested.
 class_path = "langchain_gigachat.chat_models.gigachat:GigaChat"
 # If you authenticate via GIGACHAT_CREDENTIALS, this line wires it up.
 # Remove this line if you use GIGACHAT_USER + GIGACHAT_PASSWORD instead.
@@ -169,20 +174,20 @@ timeout = 600
 # repetition_penalty = 1.0
 
 [models.providers.gigachat.profile]
-# Tells the CLI's profile resolver that this provider supports tool
+# Tells the profile resolver that this provider supports tool
 # calling and which model to default to when the user types just
 # "gigachat" without a model name.
 tool_calling = true
 default_model_hint = "GigaChat-3-Ultra"
 ```
 
-### 4. Run the CLI
+### 4. Run `deepagents-code`
 
 ```bash
-deepagents
+deepagents-code
 ```
 
-On startup the CLI loads the config, instantiates `GigaChat` with the
+On startup, `deepagents-code` loads the config, instantiates `GigaChat` with the
 parameters above, and `deepagents` automatically picks up this plugin's
 harness profile via its `deepagents.harness_profiles` entry point — so
 GigaChat-specific system prompt, tool description overrides and the
@@ -192,9 +197,9 @@ GigaChat-specific system prompt, tool description overrides and the
 
 Three independent ways to override the default at runtime:
 
-- **Inside the CLI:** type `/model gigachat:GigaChat-Pro` to switch the
+- **Inside `deepagents-code`:** type `/model gigachat:GigaChat-Pro` to switch the
   current session.
-- **From the shell, per-launch:** `deepagents --model gigachat:GigaChat-Max`.
+- **From the shell, per-launch:** `deepagents-code --model gigachat:GigaChat-Max`.
 - **From the environment:** set `GIGACHAT_MODEL=GigaChat-Pro` before
   launching. (This is honoured by `langchain-gigachat` itself when the
   model name isn't pinned in the config.)
@@ -219,6 +224,19 @@ Runnable examples live in [`examples/`](examples/). The simplest one is
 
 ```bash
 uv run python examples/basic_agent.py
+```
+
+Or run this minimal inline example:
+
+```python
+from deepagents import create_deep_agent
+from langchain_gigachat import GigaChat
+
+agent = create_deep_agent(
+    model=GigaChat(model="GigaChat-3-Ultra"),
+    system_prompt="You are a helpful assistant.",
+)
+result = agent.invoke({"messages": "Hi! What can you do?"})
 ```
 
 ## Benchmark
