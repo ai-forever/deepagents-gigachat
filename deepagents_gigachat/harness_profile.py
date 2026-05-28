@@ -269,10 +269,12 @@ class LoopBreakerMiddleware(AgentMiddleware):
             f"Strip the spaces + number + tab before reusing the text. "
             f"`     3\\tHello` in display means the file contains just `Hello`.\n"
             f"- If `python -c \"...\"` keeps giving SyntaxError: switch to "
-            f"`write_file run.py \"<multi-line code>\"` then `execute python "
-            f"run.py`.\n"
-            f"- If a path failed with 'No such file' or 'Read-only file "
-            f"system': switch from absolute `/foo` to relative `foo`.\n"
+            f"`write_file /Users/name/project/run.py \"<multi-line code>\"` "
+            f"with the actual workspace path, then `execute python run.py`.\n"
+            f"- If a filesystem tool path failed, use the real absolute path "
+            f"under the current workspace (for example "
+            f"`/Users/name/project/foo`), not a virtual-root path like `/foo`. "
+            f"If an `execute` path failed, use a shell relative path like `foo`.\n"
             f"- If `grep`/`glob` returns nothing useful: try a broader search "
             f"term or use `ls` to verify the structure.\n"
             f"- If `write_file` says 'already exists': the right tool is "
@@ -303,32 +305,41 @@ def _tool_description_overrides(profile_variant: str) -> dict[str, str]:
             )
         }
     return {
-        # Filesystem tools (deepagents 0.6.x) — explicit relative-path
-        # rule so they match `execute` semantics (host shell, not virtual).
+        # Filesystem tools (deepagents 0.6.x) expose absolute path schemas.
+        # `execute` is different: it runs in the host shell working directory.
         "ls": (
-            "List files in a directory. Use a relative path (e.g. '.', "
-            "'src') — NEVER absolute '/'."
+            "List files in a directory. Use the real absolute path under "
+            "the current workspace (e.g. '/Users/name/project' or "
+            "'/Users/name/project/src'). Do NOT use virtual-root paths like "
+            "'/' or '/src' unless the user explicitly says the backend is virtual."
         ),
         "read_file": (
-            "Read a file. Use a relative path like 'foo.py' (NEVER start "
-            "with '/'). Output is prefixed with '<line_no>\\t' for "
-            "display — strip that prefix before reusing the text in "
-            "edit_file/write_file."
+            "Read a file. Use the real absolute path under the current "
+            "workspace, like '/Users/name/project/foo.py' or "
+            "'/Users/name/project/src/foo.py'. Do NOT use virtual-root paths "
+            "like '/foo.py' unless the user explicitly says the backend is "
+            "virtual. Output is prefixed with '<line_no>\\t' for display — "
+            "strip that prefix before reusing the text in edit_file/write_file."
         ),
         "glob": (
             "Find files by pattern (e.g. '**/*.py'). Patterns are "
-            "relative to the workspace; do NOT prefix with '/'."
+            "matched from the workspace; if you provide a base path, use the "
+            "real absolute workspace path like '/Users/name/project' or "
+            "'/Users/name/project/src'. Do NOT use virtual-root paths like "
+            "'/' or '/src' unless the backend is virtual."
         ),
         "write_file": (
-            "Create a file or overwrite it completely. Use a relative path "
-            "like 'foo.py' or 'src/foo.py' (never start with '/'). The "
-            "content is the file body verbatim — do NOT include line-number "
-            "prefixes from read_file output. Use this for new files or full "
-            "rewrites; use edit_file for small changes. When the task names "
-            "a required output file, write the final deliverable content into "
-            "that exact file (do NOT write a script as a substitute). Unless "
-            "explicitly requested, do not leave the file empty or with "
-            "placeholder text."
+            "Create a file or overwrite it completely. Use the real absolute "
+            "path under the current workspace, like "
+            "'/Users/name/project/foo.py' or '/Users/name/project/src/foo.py'. "
+            "Do NOT use virtual-root paths like '/foo.py' unless the user "
+            "explicitly says the backend is virtual. The content is the file "
+            "body verbatim — do NOT include line-number prefixes from "
+            "read_file output. Use this for new files or full rewrites; use "
+            "edit_file for small changes. When the task names a required "
+            "output file, write the final deliverable content into that exact "
+            "file (do NOT write a script as a substitute). Unless explicitly "
+            "requested, do not leave the file empty or with placeholder text."
         ),
         "edit_file": (
             "Replace one exact occurrence of old_string with new_string in "
@@ -342,7 +353,10 @@ def _tool_description_overrides(profile_variant: str) -> dict[str, str]:
             "found' and you copied recently from read_file, the prefix "
             "leak is almost certainly the cause — strip it and retry. "
             "Always include enough surrounding lines so old_string is "
-            "unique. Use a relative path (never start with '/')."
+            "unique. Use the real absolute path under the current workspace, "
+            "like '/Users/name/project/foo.py' or "
+            "'/Users/name/project/src/foo.py'. Do NOT use virtual-root paths "
+            "like '/foo.py' unless the backend is virtual."
         ),
         "grep": (
             "Search for a literal substring (NOT a regex) across files. "

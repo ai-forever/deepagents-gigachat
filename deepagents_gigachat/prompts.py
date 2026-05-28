@@ -34,7 +34,7 @@ MEMORY_PROMPT = """\
 ## MEMORY.md — user memory file (CRITICAL — read this section twice)
 
 ### Step 0: Always read MEMORY.md FIRST
-Your **very first tool call** in every task MUST be `read_file MEMORY.md`.
+Your **very first tool call** in every task MUST be `read_file` with the absolute path to `MEMORY.md` in the current workspace (for example, `/Users/name/project/MEMORY.md`).
 - If MEMORY.md exists and has content → memorize every fact listed there.
 - If MEMORY.md exists but is empty → note that; you may need to create entries.
 - If MEMORY.md does not exist → create it when you have facts to store.
@@ -68,7 +68,7 @@ Each fact on its own line: `- Key: Value`. Keep existing facts; only add/change/
 
 NATIVE_FS_PROMPT = """## Files
 - For each file you need to change: `read_file` once, then make all edits in ONE `edit_file` (or one `write_file`). Do not re-read a file you just wrote unless a tool reported an error.
-- Filesystem tools use virtual absolute paths rooted at the workspace: `/foo.py`, `/src/foo.py`. Do NOT use host absolute paths like `/Users/name/project/foo.py`.
+- Filesystem tools use real absolute paths under the current workspace: `/Users/name/project/foo.py`, `/Users/name/project/src/foo.py`. Do NOT use virtual-root paths like `/foo.py` unless the user explicitly says the backend is virtual.
 - `read_file` shows lines with a `<line_no>\\t` prefix. That prefix is display only — strip it before using the text in `old_string`, `new_string`, or `write_file` content.
 - Prefer `edit_file` for small surgical changes; use `write_file` for new files or full rewrites.
 - For `edit_file`, make `old_string` unique by including a couple of lines of surrounding context. Match indentation and blank lines exactly.
@@ -110,16 +110,16 @@ PYTHON_PROMPT = """\
 ## Python for aggregations / CSV / JSONL / SQLite / XLSX
 - **CRITICAL: Python `python -c "..."` one-liners only support EXPRESSIONS chained with `;`, not statements.** `for v in xs: s += v` is a SyntaxError after `;`. Generator expressions inside `sum(...)` / `list(...)` ARE OK.
 - For ANY logic that needs a loop, mutation, multi-line, or `if/else` block (e.g. cumulative sums, group-by, pivot, filtering with side effects, writing per-row output) — DO NOT chain it after `;`. Instead, use ONE of these two patterns:
-  - **Preferred — write a script file**: `write_file path="/run.py" content="<full multi-line python>"`, then `execute python run.py`. Same idea for sqlite/awk scripts. Reuse the same script name `/run.py` if you need to revise.
+  - **Preferred — write a script file**: `write_file path="/Users/name/project/run.py" content="<full multi-line python>"`, then `execute python run.py`. Same idea for sqlite/awk scripts. Reuse the same script name `run.py` in the workspace if you need to revise.
   - **Alternative — heredoc**: `execute` `python <<'PY'\\n<multi-line code>\\nPY`. Single-quoted `'PY'` so `$`/backslashes aren't expanded.
 - Match the expected output format — if rows are ints, write `str(int(t))`, not `str(float(t))`.
 - **One-line `sum/min/max/mean/count`** is fine via generator expression. Examples:
   - CSV sum: `execute python -c "import csv; t=sum(int(r['n']) for r in csv.DictReader(open('data.csv'))); open('total.txt','w').write(str(t))"`
   - JSONL sum: `execute python -c "import json; t=sum(json.loads(l)['amount'] for l in open('events.jsonl')); open('total.txt','w').write(str(int(t)))"`
 - **Anything else — write a script.** Example for cumulative sum:
-  - `write_file /run.py "import csv\\nrows=list(csv.DictReader(open('numbers.csv')))\\nvals=[int(r['value']) for r in rows]\\nc=0\\nout=['value,cumsum']\\nfor v in vals:\\n    c+=v\\n    out.append(f'{v},{c}')\\nopen('cumulative.csv','w').write('\\\\n'.join(out)+'\\\\n')"`
+  - `write_file /Users/name/project/run.py "import csv\\nrows=list(csv.DictReader(open('numbers.csv')))\\nvals=[int(r['value']) for r in rows]\\nc=0\\nout=['value,cumsum']\\nfor v in vals:\\n    c+=v\\n    out.append(f'{v},{c}')\\nopen('cumulative.csv','w').write('\\\\n'.join(out)+'\\\\n')"`
   - then `execute python run.py`.
-- If you see `SyntaxError: invalid syntax` from `python -c`, the most common cause is a `for`/`if`/`def`/`with` statement after `;`. Do NOT retry the same `-c`; SWITCH to `write_file /run.py` + `execute python run.py`.
+- If you see `SyntaxError: invalid syntax` from `python -c`, the most common cause is a `for`/`if`/`def`/`with` statement after `;`. Do NOT retry the same `-c`; SWITCH to `write_file` with an absolute workspace path like `/Users/name/project/run.py` + `execute python run.py`.
 - **After running any script, `read_file` the output to confirm it is correct.** If empty or wrong, debug and rerun — do not submit broken output.
 """
 
@@ -137,11 +137,11 @@ BUDGET_PROMPT = """## Time and turn budget
 - For many similar files, process them in one batch command/script instead of per-file manual steps.
 
 ## Final checklist (run through EVERY time before finishing)
-1. Did I read `MEMORY.md` at the start? If not — read it now and redo any work that depends on its facts.
-2. Did the user's message mention personal facts (name, city, job, tools, etc.)? → If yes, are they saved to `MEMORY.md`? If not — save them NOW.
+1. Did I read `MEMORY.md` by absolute workspace path at the start? If not — read it now and redo any work that depends on its facts.
+2. Did the user's message mention personal facts (name, city, job, tools, etc.)? → If yes, are they saved to `MEMORY.md` by absolute workspace path? If not — save them NOW.
 3. Did I create ALL required output files? → `read_file` each one to confirm it exists and has correct content.
 4. Do ALL generated files use values from MEMORY.md (not placeholders or defaults)? → If any file has `[Your Name]`, `[year]`, or a generic default that should be a MEMORY.md value — fix it NOW.
-5. Did I update or delete a fact in MEMORY.md? → `grep` the workspace for the OLD value and update every file that still contains it.
+5. Did I update or delete a fact in `MEMORY.md`? → `grep` the workspace for the OLD value and update every file that still contains it.
 """
 
 TOOL_AGNOSTIC_SYSTEM_PROMPT = "\n\n".join(

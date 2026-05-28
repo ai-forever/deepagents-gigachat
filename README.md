@@ -91,16 +91,10 @@ For a minimal inline `create_deep_agent` + `GigaChat` snippet, see
 available in environment variables (`GIGACHAT_CREDENTIALS` or
 `GIGACHAT_USER` + `GIGACHAT_PASSWORD`).
 
-If you use `FilesystemBackend`, set `virtual_mode=True` explicitly until the
-upstream `deepagents` default changes. The GigaChat profile assumes virtual
-filesystem paths such as `/notes.md`; without virtual mode, those paths may be
-interpreted as real host paths and fail at the filesystem root.
-
-```python
-from deepagents.backends import FilesystemBackend
-
-backend = FilesystemBackend(root_dir=".", virtual_mode=True)
-```
+> The current profile is tuned for the default `FilesystemBackend` behavior
+> (`virtual_mode=False`). Its prompts and filesystem tool descriptions assume
+> real absolute workspace paths such as `/Users/name/project/notes.md`, matching
+> the path schemas exposed by `deepagents`.
 
 ## Use With `deepagents-code`
 
