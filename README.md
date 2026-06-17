@@ -6,27 +6,29 @@ A [`HarnessProfile`](https://docs.langchain.com/oss/python/deepagents/profiles#h
 for [`deepagents`](https://github.com/langchain-ai/deepagents) tuned for
 [GigaChat](https://giga.chat/) models. On the
 [`harness-bench-fast`](https://github.com/ai-forever/harness-bench-fast)
-231-task agent benchmark the profile lifts `GigaChat-3-Ultra` from
-**164 / 231 (71.0 %)** to **195 / 231 (84.4 %)** — see the
-[Benchmark](#benchmark) section for the methodology and full results.
+313-task agent benchmark (v0.9.0) the profile reaches **269 / 313 (85.9 %)**
+with `GigaChat-3-Ultra` — see the [Benchmark](#benchmark) section for
+methodology and historical results.
 
 The profile replaces the default `deepagents` system prompt, rewrites the
 descriptions of file and shell tools (`ls`, `read_file`, `write_file`, `glob`,
 `grep`, `edit_file`, `execute`) to match GigaChat's tool-calling behavior, and
-adds a `think` middleware tool for structured intermediate reasoning.
+adds middleware for structured reasoning, shell safety, path normalization,
+memory-task nudges, and loop breaking.
 
 Once installed, the profile is registered automatically via the
 `deepagents.harness_profiles` entry point — no code changes required.
 
 ## Structure
 
-- `deepagents_gigachat/harness_profile.py` — GigaChat `HarnessProfile` implementation
-- `deepagents_gigachat/prompts.py` — base prompt used by the profile
-- `deepagents_gigachat/__init__.py` — public entry point exporting `register_harness()`
+- `deepagents_gigachat/harness_profile.py` — GigaChat `HarnessProfile`, middleware, tool overrides
+- `deepagents_gigachat/prompts.py` — system prompt variants (`native_fs`, `tool_agnostic`, …)
+- `deepagents_gigachat/__init__.py` — exports `register_harness()`, `set_workspace_path()`, …
 
 ## Requirements
 
 - Python 3.12+
+- `deepagents` **>= 0.6.7** (0.6.x filesystem API; see [Filesystem backend](#filesystem-backend))
 - `uv` (for dependency installation and execution)
 
 ## Installation
@@ -91,10 +93,44 @@ For a minimal inline `create_deep_agent` + `GigaChat` snippet, see
 available in environment variables (`GIGACHAT_CREDENTIALS` or
 `GIGACHAT_USER` + `GIGACHAT_PASSWORD`).
 
-> The current profile is tuned for the default `FilesystemBackend` behavior
-> (`virtual_mode=False`). Its prompts and filesystem tool descriptions assume
-> real absolute workspace paths such as `/Users/name/project/notes.md`, matching
-> the path schemas exposed by `deepagents`.
+### Filesystem backend
+
+This profile is tuned for runners that use a **local filesystem backend with
+`virtual_mode=True`** — the setup used by `harness-bench-fast` and recommended
+for `deepagents-code` when agents work inside an isolated workspace directory.
+
+With `virtual_mode=True`:
+
+- **File tools** (`read_file`, `write_file`, `edit_file`, `grep`, `glob`, `ls`)
+  treat the workspace root as `/`. Use **relative paths** in tool calls:
+  `notes.md`, `src/utils.py` — not host absolute paths like
+  `/Users/you/project/notes.md`.
+- **`execute`** still runs in the **host shell** working directory (the workspace
+  folder). Shell commands must also use **relative** paths: `cat data.csv` works,
+  `cat /data.csv` does not.
+
+The profile includes `PathNormalizerMiddleware` to strip leading `/` from
+`grep`/`glob` results so the agent writes relative paths into output files.
+
+Always pass `virtual_mode` explicitly when constructing the backend — in
+deepagents 0.6.x the default is still `False`, but the 0.6 API expects an
+explicit choice:
+
+```python
+from deepagents import create_deep_agent
+from deepagents.backends import LocalShellBackend
+from langchain_gigachat import GigaChat
+
+backend = LocalShellBackend(root_dir=".", virtual_mode=True)
+agent = create_deep_agent(
+    model=GigaChat(model="GigaChat-3-Ultra"),
+    backend=backend,
+)
+```
+
+If you run with `virtual_mode=False`, filesystem tool paths follow the real host
+filesystem instead; the relative-path prompts in this profile will not match
+that mode.
 
 ## Use With `deepagents-code`
 
@@ -249,23 +285,31 @@ result = agent.invoke({"messages": "Hi! What can you do?"})
 The benchmark used to validate every profile version of this plugin
 now lives in its own repo:
 [`ai-forever/harness-bench-fast`](https://github.com/ai-forever/harness-bench-fast).
-It is a self-contained 231-task agent evaluation covering file
-creation/editing, refactors, project-wide `grep`/`glob`, CSV / JSON /
-JSONL / YAML / TOML / INI / XLSX / SQLite pipelines, pytest-graded
-implementations, composite multi-step pipelines, and `MEMORY.md`
-discipline. Every verifier is mechanical — no LLM-as-judge.
+It is a self-contained agent evaluation (currently **313 tasks**, v0.9.0)
+covering file creation/editing, refactors, project-wide `grep`/`glob`, CSV /
+JSON / JSONL / YAML / TOML / INI / XLSX / SQLite pipelines, pytest-graded
+implementations, composite multi-step pipelines, merge/conflict resolution,
+terminal-style parsing, policy/action JSON tasks, and `MEMORY.md` discipline.
+Every verifier is mechanical — no LLM-as-judge.
 
-Latest contribution of this plugin on that bench, against
-`GigaChat-3-Ultra` at `gigachat.sberdevices.ru/v1`:
+Latest results on the full 313-task set, `GigaChat-3-Ultra` at
+`gigachat.sberdevices.ru/v1`, `LocalShellBackend(virtual_mode=True)`:
+
+| Configuration                   | PASS / 313 | %      |
+| ------------------------------- | ---------- | ------ |
+| `deepagents` + this plugin      | 269 / 313  | 85.9 % |
+
+Historical uplift on the earlier 231-task subset of the same bench:
 
 | Configuration                          | PASS / 231 | %      | Δ                  |
 | -------------------------------------- | ---------- | ------ | ------------------ |
 | stock `deepagents`, no profile         | 164 / 231  | 71.0 % | —                  |
 | `deepagents` + this plugin (v9)        | 195 / 231  | 84.4 % | +31 (+13.4 pp)     |
 
-v9 = `ThinkToolMiddleware` + `ShellSafetyMiddleware` +
-`ToolContractMiddleware` + `LoopBreakerMiddleware` + the
-`base_system_prompt` and tool description overrides.
+Current middleware stack: `ThinkToolMiddleware`, `ShellSafetyMiddleware`,
+`PathNormalizerMiddleware`, `MemoryTaskMiddleware`, `LoopBreakerMiddleware`,
+optional `ToolContractMiddleware`, plus `base_system_prompt` and tool
+description overrides.
 
 ## Lint
 

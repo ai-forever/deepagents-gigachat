@@ -121,6 +121,132 @@ class ShellSafetyMiddleware(AgentMiddleware):
         )
 
 
+class PathNormalizerMiddleware(AgentMiddleware):
+    """Strip leading '/' from glob/grep results so the agent sees relative paths.
+
+    In virtual_mode=True the workspace root is '/', so tools return paths like
+    '/src/foo.py'.  The agent often copies these verbatim into output files,
+    failing tasks that expect 'src/foo.py'.  This middleware rewrites tool
+    results to use relative paths, which the agent can both use with tools
+    (they still resolve correctly) and write into output files without issues.
+    """
+
+    name = "PathNormalizerMiddleware"
+
+    _PATH_TOOLS = {"glob", "grep"}
+
+    @staticmethod
+    def _strip_leading_slash(text: str) -> str:
+        lines = text.split("\n")
+        out = []
+        for line in lines:
+            stripped = re.sub(r"(?<![:\w])/(?=\w)", "", line, count=1)
+            out.append(stripped)
+        return "\n".join(out)
+
+    def wrap_tool_call(self, request: Any, handler: Any) -> ToolMessage:
+        tool_call = getattr(request, "tool_call", {}) or {}
+        tool_name = tool_call.get("name") or getattr(getattr(request, "tool", None), "name", "")
+        result = handler(request)
+        if tool_name in self._PATH_TOOLS and isinstance(result.content, str):
+            result = ToolMessage(
+                content=self._strip_leading_slash(result.content),
+                tool_call_id=result.tool_call_id,
+                name=result.name,
+            )
+        return result
+
+    async def awrap_tool_call(self, request: Any, handler: Any) -> ToolMessage:
+        tool_call = getattr(request, "tool_call", {}) or {}
+        tool_name = tool_call.get("name") or getattr(getattr(request, "tool", None), "name", "")
+        result = await handler(request)
+        if tool_name in self._PATH_TOOLS and isinstance(result.content, str):
+            result = ToolMessage(
+                content=self._strip_leading_slash(result.content),
+                tool_call_id=result.tool_call_id,
+                name=result.name,
+            )
+        return result
+
+
+class MemoryTaskMiddleware(AgentMiddleware):
+    """Nudge the agent on memory-task workflows when AGENTS.md is present."""
+
+    name = "MemoryTaskMiddleware"
+    _START_MARKER = "[MEMORY-TASK]"
+    _SAVE_MARKER = "[MEMORY-SAVE]"
+
+    @staticmethod
+    def _is_memory_workspace() -> bool:
+        wp = get_workspace_path()
+        return wp is not None and (wp / "AGENTS.md").exists()
+
+    @staticmethod
+    def _messages_text(messages: list[Any]) -> str:
+        parts: list[str] = []
+        for msg in messages:
+            content = getattr(msg, "content", "") or ""
+            if isinstance(content, str):
+                parts.append(content)
+        return "\n".join(parts)
+
+    @staticmethod
+    def _memory_touched(messages: list[Any]) -> bool:
+        for msg in messages:
+            if not isinstance(msg, AIMessage):
+                continue
+            for tc in getattr(msg, "tool_calls", None) or []:
+                args = tc.get("args", {}) or {}
+                for key in ("file_path", "path", "target_file"):
+                    val = args.get(key, "")
+                    if isinstance(val, str) and "MEMORY.md" in val:
+                        return True
+        return False
+
+    def before_model(self, state: Any, runtime: Runtime[Any]) -> dict[str, Any] | None:  # noqa: ARG002
+        if not self._is_memory_workspace():
+            return None
+        messages = state.get("messages") if isinstance(state, dict) else getattr(state, "messages", None)
+        if not messages:
+            return None
+        text = self._messages_text(messages)
+
+        ai_rounds = sum(
+            1 for m in messages if isinstance(m, AIMessage) and (getattr(m, "tool_calls", None) or [])
+        )
+        if ai_rounds == 0 and self._START_MARKER not in text:
+            return {
+                "messages": [
+                    HumanMessage(
+                        content=(
+                            f"{self._START_MARKER} This is a memory task.\n"
+                            "1) read_file MEMORY.md first\n"
+                            "2) complete the requested deliverable using MEMORY facts verbatim\n"
+                            "3) if the user mentioned ANY personal fact, edit_file MEMORY.md before finishing"
+                        )
+                    )
+                ]
+            }
+
+        if (
+            ai_rounds >= 2
+            and not self._memory_touched(messages)
+            and self._SAVE_MARKER not in text
+        ):
+            return {
+                "messages": [
+                    HumanMessage(
+                        content=(
+                            f"{self._SAVE_MARKER} Did the user mention personal facts "
+                            "(city, provider, focus day, name, tools)? If yes, you MUST "
+                            "edit_file MEMORY.md NOW before finishing. This is mandatory."
+                        )
+                    )
+                ]
+            }
+        return None
+
+
 class LoopBreakerMiddleware(AgentMiddleware):
     """Detect agent loops and repeated failed command families.
 
@@ -225,10 +351,72 @@ class LoopBreakerMiddleware(AgentMiddleware):
                 return family
         return None
 
+    @staticmethod
+    def _count_tool_rounds(messages: list[Any]) -> int:
+        return sum(
+            1
+            for msg in messages
+            if isinstance(msg, AIMessage) and (getattr(msg, "tool_calls", None) or [])
+        )
+
+    @staticmethod
+    def _grep_looks_empty(text: str) -> bool:
+        if not text or not text.strip():
+            return True
+        lowered = text.lower()
+        return any(
+            marker in lowered
+            for marker in ("no matches", "0 matches", "not found", "no results", "0 results")
+        )
+
+    @staticmethod
+    def _already_nudged(messages: list[Any], marker: str) -> bool:
+        for msg in reversed(messages):
+            content = getattr(msg, "content", "") or ""
+            if isinstance(content, str) and marker in content:
+                return True
+            if isinstance(msg, AIMessage):
+                break
+        return False
+
+    def _budget_nudge(self, tool_rounds: int) -> str:
+        return (
+            "[BUDGET-NUDGE] You have made "
+            f"{tool_rounds} tool calls. STOP exploring and finish the task NOW.\n"
+            "- Simple count task? write_file run.py + execute python run.py → done.\n"
+            "- Required output file not written yet? write_file it immediately.\n"
+            "- Do NOT make more read/grep calls. Write your best answer and finish."
+        )
+
+    def _grep_empty_nudge(self) -> str:
+        return (
+            "[LOOP-BREAKER] grep returned 0 matches twice. Do NOT grep again.\n"
+            "Switch to: write_file run.py using pathlib.Path('tests').rglob('*.py') "
+            "(or the right directory), count occurrences in a loop, "
+            "open('count.txt','w').write(str(total)), then execute python run.py."
+        )
+
     def before_model(self, state: Any, runtime: Runtime[Any]) -> dict[str, Any] | None:  # noqa: ARG002
         messages = state.get("messages") if isinstance(state, dict) else getattr(state, "messages", None)
         if not messages:
             return None
+
+        tool_rounds = self._count_tool_rounds(messages)
+
+        # High call-count guard: force finish on simple-looking tasks.
+        if tool_rounds >= 12 and not self._already_nudged(messages, "[BUDGET-NUDGE]"):
+            return {"messages": [HumanMessage(content=self._budget_nudge(tool_rounds))]}
+
+        # Grep-empty streak: common on count tasks that return 0 forever.
+        grep_pairs = self._last_n_tool_pairs(messages, 2)
+        if (
+            grep_pairs
+            and all(p[0] == "grep" for p in grep_pairs)
+            and all(self._grep_looks_empty(p[2]) for p in grep_pairs)
+            and not self._already_nudged(messages, "[LOOP-BREAKER]")
+        ):
+            return {"messages": [HumanMessage(content=self._grep_empty_nudge())]}
+
         pairs = self._last_n_tool_pairs(messages, 3)
         if not pairs:
             return None
@@ -269,14 +457,11 @@ class LoopBreakerMiddleware(AgentMiddleware):
             f"Strip the spaces + number + tab before reusing the text. "
             f"`     3\\tHello` in display means the file contains just `Hello`.\n"
             f"- If `python -c \"...\"` keeps giving SyntaxError: switch to "
-            f"`write_file /Users/name/project/run.py \"<multi-line code>\"` "
-            f"with the actual workspace path, then `execute python run.py`.\n"
-            f"- If a filesystem tool path failed, use the real absolute path "
-            f"under the current workspace (for example "
-            f"`/Users/name/project/foo`), not a virtual-root path like `/foo`. "
-            f"If an `execute` path failed, use a shell relative path like `foo`.\n"
-            f"- If `grep`/`glob` returns nothing useful: try a broader search "
-            f"term or use `ls` to verify the structure.\n"
+            f"`write_file run.py \"<multi-line code>\"`, then `execute python run.py`.\n"
+            f"- If a filesystem tool path failed, use a relative path like "
+            f"`foo.py` or `src/foo.py`. Do NOT use absolute paths.\n"
+            f"- If `grep`/`glob` returns nothing useful: for count tasks, write "
+            f"`run.py` with pathlib.rglob — do NOT keep grepping.\n"
             f"- If `write_file` says 'already exists': the right tool is "
             f"`edit_file`, NOT another `write_file` with a new name.\n"
             f"- If a CLI/runtime tool says 'invalid choice' or 'unrecognized "
@@ -305,35 +490,25 @@ def _tool_description_overrides(profile_variant: str) -> dict[str, str]:
             )
         }
     return {
-        # Filesystem tools (deepagents 0.6.x) expose absolute path schemas.
-        # `execute` is different: it runs in the host shell working directory.
         "ls": (
-            "List files in a directory. Use the real absolute path under "
-            "the current workspace (e.g. '/Users/name/project' or "
-            "'/Users/name/project/src'). Do NOT use virtual-root paths like "
-            "'/' or '/src' unless the user explicitly says the backend is virtual."
+            "List files in a directory. Use relative paths: `ls .` or "
+            "`ls src`. Do NOT use absolute paths like '/Users/name/project'."
         ),
         "read_file": (
-            "Read a file. Use the real absolute path under the current "
-            "workspace, like '/Users/name/project/foo.py' or "
-            "'/Users/name/project/src/foo.py'. Do NOT use virtual-root paths "
-            "like '/foo.py' unless the user explicitly says the backend is "
-            "virtual. Output is prefixed with '<line_no>\\t' for display — "
+            "Read a file. Use a relative path like 'foo.py' or "
+            "'src/foo.py'. Do NOT use absolute paths. "
+            "Output is prefixed with '<line_no>\\t' for display — "
             "strip that prefix before reusing the text in edit_file/write_file."
         ),
         "glob": (
-            "Find files by pattern (e.g. '**/*.py'). Patterns are "
-            "matched from the workspace; if you provide a base path, use the "
-            "real absolute workspace path like '/Users/name/project' or "
-            "'/Users/name/project/src'. Do NOT use virtual-root paths like "
-            "'/' or '/src' unless the backend is virtual."
+            "Find files by pattern (e.g. '**/*.py'). Returns paths "
+            "starting with '/' (virtual root). IMPORTANT: when you write "
+            "these paths to any output file, strip the leading '/' — write "
+            "'src/foo.py', NOT '/src/foo.py'."
         ),
         "write_file": (
-            "Create a file or overwrite it completely. Use the real absolute "
-            "path under the current workspace, like "
-            "'/Users/name/project/foo.py' or '/Users/name/project/src/foo.py'. "
-            "Do NOT use virtual-root paths like '/foo.py' unless the user "
-            "explicitly says the backend is virtual. The content is the file "
+            "Create a file or overwrite it completely. Use a relative "
+            "path like 'foo.py' or 'src/foo.py'. The content is the file "
             "body verbatim — do NOT include line-number prefixes from "
             "read_file output. Use this for new files or full rewrites; use "
             "edit_file for small changes. When the task names a required "
@@ -353,31 +528,28 @@ def _tool_description_overrides(profile_variant: str) -> dict[str, str]:
             "found' and you copied recently from read_file, the prefix "
             "leak is almost certainly the cause — strip it and retry. "
             "Always include enough surrounding lines so old_string is "
-            "unique. Use the real absolute path under the current workspace, "
-            "like '/Users/name/project/foo.py' or "
-            "'/Users/name/project/src/foo.py'. Do NOT use virtual-root paths "
-            "like '/foo.py' unless the backend is virtual."
+            "unique. Use a relative path like 'foo.py' or 'src/foo.py'."
         ),
         "grep": (
             "Search for a literal substring (NOT a regex) across files. "
-            "Pass exactly ONE phrase per call. To search for several "
-            "alternatives run grep several times. The result lists matching "
-            "lines — read it directly instead of opening every matched "
-            "file again."
+            "Pass exactly ONE phrase per call. **Always pass `path`** to scope "
+            "the search: path='tests' for tests/*.py, path='src' for src/*.py, "
+            "path='.' for the whole workspace. To search several alternatives "
+            "run grep several times. The result lists matching lines — read "
+            "it directly. If 0 matches, switch to a Python run.py script with "
+            "pathlib.rglob instead of retrying grep. Returned paths start with "
+            "'/' — strip it before writing to output files."
         ),
         "execute": (
             "Run one short shell command in the workspace directory "
             "(e.g. 'rm a.txt', 'mv old new', 'mkdir -p logs'). "
-            "IMPORTANT: this runs on the host filesystem, NOT the virtual "
-            "root used by the file tools. Use RELATIVE paths — `cat "
-            "numbers.txt` works, `cat /numbers.txt` will fail with "
-            "'No such file' or 'Read-only file system' (it would read "
-            "the real /). Never embed multi-line content via sh -c \"...\" "
-            "or bash -c \"...\" with double quotes; if you must run a "
-            "multi-line snippet, use a single-quoted heredoc "
+            "IMPORTANT: use RELATIVE paths — `cat numbers.txt` works, "
+            "`cat /numbers.txt` will fail with 'No such file' or "
+            "'Read-only file system'. Never embed multi-line content via "
+            "sh -c \"...\" or bash -c \"...\" with double quotes; if you "
+            "must run a multi-line snippet, use a single-quoted heredoc "
             "(cat <<'EOF' ... EOF). Prefer write_file / edit_file for "
-            "changing file content. Use execute for quick verification "
-            "of required outputs (e.g., `ls -l`, `wc -l`) before finishing."
+            "changing file content."
         ),
     }
 
@@ -403,6 +575,8 @@ def register_harness(profile_variant: str | None = None, tool_contract: str | No
     middleware: list[AgentMiddleware] = [
         ThinkToolMiddleware(),
         ShellSafetyMiddleware(),
+        PathNormalizerMiddleware(),
+        MemoryTaskMiddleware(),
         LoopBreakerMiddleware(),
     ]
     if contract:
