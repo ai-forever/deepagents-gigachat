@@ -39,9 +39,9 @@ def test_register_harness_registers_gigachat_profile() -> None:
 
     assert profile is not None
     assert "write_file" in profile.tool_description_overrides
-    assert "real absolute path" in profile.tool_description_overrides["write_file"]
-    assert "/Users/name/project/foo.py" in profile.tool_description_overrides["write_file"]
-    assert "Do NOT use virtual-root paths" in profile.tool_description_overrides["write_file"]
+    assert "relative path" in profile.tool_description_overrides["write_file"]
+    assert "foo.py" in profile.tool_description_overrides["write_file"]
+    assert "src/foo.py" in profile.tool_description_overrides["write_file"]
 
 
 def test_register_harness_uses_both_provider_aliases(monkeypatch: Any) -> None:
@@ -61,15 +61,16 @@ def test_register_harness_uses_both_provider_aliases(monkeypatch: Any) -> None:
     assert {"gigachat", "giga"} == set(captured)
     profile = captured["gigachat"]
     assert captured["giga"] is profile
-    assert "real absolute paths under the current workspace" in profile.base_system_prompt
-    assert "/Users/name/project/foo.py" in profile.base_system_prompt
-    assert "read_file` with the absolute path to `MEMORY.md`" in profile.base_system_prompt
+    assert "relative to the workspace root" in profile.base_system_prompt
+    assert "AGENTS.md" in profile.base_system_prompt
+    assert "read_file MEMORY.md" in profile.base_system_prompt
     assert "single-quoted heredoc" in profile.base_system_prompt
-    assert "real absolute path" in profile.tool_description_overrides["write_file"]
-    assert "Use RELATIVE paths" in profile.tool_description_overrides["execute"]
-    assert "AgentsMdInjectMiddleware" not in {
-        type(middleware).__name__ for middleware in profile.extra_middleware
-    }
+    assert "relative path" in profile.tool_description_overrides["write_file"]
+    assert "RELATIVE paths" in profile.tool_description_overrides["execute"]
+    middleware_names = {type(middleware).__name__ for middleware in profile.extra_middleware}
+    assert "PathNormalizerMiddleware" in middleware_names
+    assert "MemoryTaskMiddleware" in middleware_names
+    assert "AgentsMdInjectMiddleware" not in middleware_names
 
 
 def test_register_harness_can_use_external_runtime_profile(monkeypatch: Any) -> None:
