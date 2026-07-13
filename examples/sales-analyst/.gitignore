@@ -1,0 +1,8 @@
+.env
+*.bak
+.venv/
+workspace/
+skills/
+.ipynb_checkpoints/
+__pycache__/
+workspace_skill/
