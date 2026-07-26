@@ -258,10 +258,15 @@ class LoopBreakerMiddleware(AgentMiddleware):
     advice in the system prompt help, but on hot paths the model still
     falls into this pattern on a fraction of runs.
 
-    This middleware watches `messages` in `before_model` and, when it sees
-    the same `(tool_name, args)` for 3 consecutive AIMessages, appends a
-    one-shot SystemMessage with a forceful instruction to STOP and switch
-    strategy. The model usually breaks out of the loop on the next turn.
+    This middleware watches `messages` in `before_model` and injects a one-shot
+    nudge — a forceful instruction to STOP and switch strategy — when it detects
+    any of five loop signatures: the same `(tool_name, args)` three times in a
+    row; the same tool erroring three times in a row (args may drift); three
+    consecutive errors of one family; two empty `grep` results on a counting
+    task; or more than 12 tool rounds on a task that should take 3-6. The nudge
+    is sent as a HumanMessage, not a SystemMessage: GigaChat rejects a
+    mid-conversation system message with a hard 400 (see the note at the
+    injection site below). The model usually breaks out on the next turn.
     """
 
     name = "LoopBreakerMiddleware"
