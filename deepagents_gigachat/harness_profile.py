@@ -14,12 +14,32 @@ from deepagents import (
     register_harness_profile,
 )
 from langchain.agents.middleware.types import AgentMiddleware
+from langchain_core.exceptions import ContextOverflowError
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages.utils import count_tokens_approximately
 from langchain_core.tools import tool
 from langgraph.runtime import Runtime
 from pydantic import Field
 
 from deepagents_gigachat.prompts import build_system_prompt
+
+GIGACHAT_CONTEXT_WINDOWS: dict[str, int] = {
+    # Current public API aliases for the GigaChat 2 family.
+    "GigaChat": 128_000,
+    "GigaChat-Lite": 128_000,
+    "GigaChat-Pro": 128_000,
+    "GigaChat-Max": 128_000,
+    "GigaChat-2": 128_000,
+    "GigaChat-2-Lite": 128_000,
+    "GigaChat-2-Pro": 128_000,
+    "GigaChat-2-Max": 128_000,
+    # Current public GigaChat 3 model.
+    "GigaChat-3-Ultra": 128_000,
+}
+_NORMALIZED_CONTEXT_WINDOWS = {
+    model_name.casefold(): context_window
+    for model_name, context_window in GIGACHAT_CONTEXT_WINDOWS.items()
+}
 
 
 @tool("think")
@@ -168,6 +188,184 @@ class PathNormalizerMiddleware(AgentMiddleware):
                 name=result.name,
             )
         return result
+
+
+class ContextWindowGuardMiddleware(AgentMiddleware):
+    """Trigger Deep Agents compaction before an unprofiled GigaChat overflows.
+
+    Deep Agents derives fractional summarization thresholds from
+    ``model.profile["max_input_tokens"]``.  Current ``langchain-gigachat``
+    models leave that profile unset, so the stock middleware falls back to an
+    absolute 170k-token trigger, beyond GigaChat's 128k context window.
+
+    This middleware runs inside the stock Deep Agents summarizer.  When an
+    unprofiled request for a known model reaches the configured safe fraction,
+    it raises the standard ``ContextOverflowError``. Model context windows come
+    from ``GIGACHAT_CONTEXT_WINDOWS`` unless explicitly overridden. Unknown
+    models only use provider-error translation. The outer summarizer handles
+    either signal through its normal history-offload, summary, and retry path.
+    """
+
+    name = "ContextWindowGuardMiddleware"
+    _CONTEXT_ERROR_CLASS_NAMES = {
+        "RequestEntityTooLargeError",
+    }
+    _CONTEXT_ERROR_TEXT = (
+        "context length",
+        "context limit",
+        "context window",
+        "maximum context",
+        "payload too large",
+        "too many tokens",
+    )
+
+    def __init__(
+        self,
+        *,
+        context_window: int | None = None,
+        trigger_fraction: float = 0.85,
+        minimum_messages: int = 7,
+    ) -> None:
+        if context_window is not None and context_window <= 0:
+            msg = "context_window must be a positive integer"
+            raise ValueError(msg)
+        if not 0 < trigger_fraction < 1:
+            msg = "trigger_fraction must be between 0 and 1"
+            raise ValueError(msg)
+        if minimum_messages < 2:
+            msg = "minimum_messages must be at least 2"
+            raise ValueError(msg)
+        self.context_window = context_window
+        self.trigger_fraction = trigger_fraction
+        self.minimum_messages = minimum_messages
+        self.trigger_tokens = (
+            int(context_window * trigger_fraction)
+            if context_window is not None
+            else None
+        )
+
+    @staticmethod
+    def _model_has_context_profile(model: Any) -> bool:
+        profile = getattr(model, "profile", None)
+        return (
+            isinstance(profile, dict)
+            and isinstance(profile.get("max_input_tokens"), int)
+            and profile["max_input_tokens"] > 0
+        )
+
+    @staticmethod
+    def _model_identifier(model: Any) -> str:
+        identifier = (
+            getattr(model, "model", None)
+            or getattr(model, "model_name", None)
+            or "GigaChat"
+        )
+        normalized = str(identifier).strip()
+        parts = normalized.split(":")
+        if len(parts) > 1 and parts[0].casefold() in {"giga", "gigachat"}:
+            normalized = parts[1]
+        else:
+            normalized = parts[0]
+        if normalized.casefold().endswith("-preview"):
+            normalized = normalized[: -len("-preview")]
+        return normalized
+
+    def context_window_for_model(self, model: Any) -> int | None:
+        """Resolve explicit override first, then the known-model table."""
+        if self.context_window is not None:
+            return self.context_window
+        identifier = self._model_identifier(model)
+        return _NORMALIZED_CONTEXT_WINDOWS.get(identifier.casefold())
+
+    @classmethod
+    def _is_provider_context_overflow(cls, exc: Exception) -> bool:
+        if type(exc).__name__ in cls._CONTEXT_ERROR_CLASS_NAMES:
+            return True
+        if type(exc).__name__ not in {"BadRequestError", "UnprocessableEntityError"}:
+            return False
+        text = str(exc).lower()
+        return any(marker in text for marker in cls._CONTEXT_ERROR_TEXT)
+
+    @staticmethod
+    def _request_tokens(request: Any) -> int:
+        messages = list(getattr(request, "messages", []) or [])
+        system_message = getattr(request, "system_message", None)
+        if system_message is not None:
+            messages.insert(0, system_message)
+        return count_tokens_approximately(
+            messages,
+            tools=getattr(request, "tools", None),
+            use_usage_metadata_scaling=True,
+        )
+
+    @staticmethod
+    def _is_summarization_retry(request: Any) -> bool:
+        """Return whether Deep Agents just compacted and is retrying the model.
+
+        The stock summarizer calls the inner handler once more with a new
+        synthetic summary before its state update is committed.  Raising a
+        second overflow from that retry would escape the outer catch block.
+        """
+        messages = list(getattr(request, "messages", []) or [])
+        if not messages:
+            return False
+        first = messages[0]
+        additional_kwargs = getattr(first, "additional_kwargs", {}) or {}
+        if additional_kwargs.get("lc_source") != "summarization":
+            return False
+        state = getattr(request, "state", {}) or {}
+        event = state.get("_summarization_event") if isinstance(state, dict) else None
+        if not isinstance(event, dict):
+            return True
+        previous_summary = event.get("summary_message")
+        return getattr(previous_summary, "content", None) != getattr(
+            first, "content", None
+        )
+
+    def _raise_if_near_limit(self, request: Any) -> None:
+        messages = list(getattr(request, "messages", []) or [])
+        if (
+            self._model_has_context_profile(getattr(request, "model", None))
+            or self._is_summarization_retry(request)
+            or len(messages) < self.minimum_messages
+        ):
+            return
+        context_window = self.context_window_for_model(
+            getattr(request, "model", None)
+        )
+        if context_window is None:
+            return
+        trigger_tokens = int(context_window * self.trigger_fraction)
+        total_tokens = self._request_tokens(request)
+        if total_tokens < trigger_tokens:
+            return
+        raise ContextOverflowError(
+            "GigaChat context guard requested proactive compaction at "
+            f"{total_tokens} estimated tokens "
+            f"({self.trigger_fraction:.0%} of {context_window})."
+        )
+
+    def wrap_model_call(self, request: Any, handler: Any) -> Any:
+        self._raise_if_near_limit(request)
+        try:
+            return handler(request)
+        except Exception as exc:
+            if not self._is_provider_context_overflow(exc):
+                raise
+            raise ContextOverflowError(
+                "GigaChat rejected the request because its context window was exceeded."
+            ) from exc
+
+    async def awrap_model_call(self, request: Any, handler: Any) -> Any:
+        self._raise_if_near_limit(request)
+        try:
+            return await handler(request)
+        except Exception as exc:
+            if not self._is_provider_context_overflow(exc):
+                raise
+            raise ContextOverflowError(
+                "GigaChat rejected the request because its context window was exceeded."
+            ) from exc
 
 
 class DeterministicOutputMiddleware(AgentMiddleware):
@@ -822,14 +1020,33 @@ def get_initial_workspace_files() -> frozenset[str]:
     return _initial_workspace_files.get()
 
 
-def register_harness(profile_variant: str | None = None, tool_contract: str | None = None) -> None:
+def register_harness(
+    profile_variant: str | None = None,
+    tool_contract: str | None = None,
+    *,
+    context_window: int | None = None,
+    summarization_trigger: float | None = None,
+) -> None:
     """Register the GigaChat HarnessProfile under GigaChat provider keys."""
     variant = (profile_variant or os.getenv("DEEPAGENTS_GIGACHAT_PROFILE") or "native_fs").strip().lower().replace("-", "_")
     contract = tool_contract or os.getenv("DEEPAGENTS_GIGACHAT_TOOL_CONTRACT")
+    window = context_window
+    if window is None:
+        configured_window = os.getenv("DEEPAGENTS_GIGACHAT_CONTEXT_WINDOW")
+        window = int(configured_window) if configured_window else None
+    trigger = summarization_trigger
+    if trigger is None:
+        trigger = float(
+            os.getenv("DEEPAGENTS_GIGACHAT_SUMMARIZATION_TRIGGER", "0.85")
+        )
     middleware: list[AgentMiddleware] = [
         ThinkToolMiddleware(),
         ShellSafetyMiddleware(),
         PathNormalizerMiddleware(),
+        ContextWindowGuardMiddleware(
+            context_window=window,
+            trigger_fraction=trigger,
+        ),
         DeterministicOutputMiddleware(),
         SpecificationAuditMiddleware(),
         MemoryTaskMiddleware(),
@@ -849,5 +1066,7 @@ def register_harness(profile_variant: str | None = None, tool_contract: str | No
     print(
         "[deepagents-gigachat] Harness profile loaded "
         f"(providers=gigachat,giga; variant={variant}; "
+        f"context_window={window if window is not None else 'model-map'}; "
+        f"summarization_trigger={trigger:.0%}; "
         f"tool_contract={'on' if bool(contract) else 'off'})"
     )

@@ -59,6 +59,10 @@ GIGACHAT_BASE_URL="https://gigachat.sberdevices.ru/v1"
 GIGACHAT_MODEL="GigaChat-3-Ultra"
 GIGACHAT_VERIFY_SSL_CERTS=False
 GIGACHAT_PROFANITY_CHECK=False
+
+# Optional override for the built-in model context-window table.
+DEEPAGENTS_GIGACHAT_CONTEXT_WINDOW=128000
+DEEPAGENTS_GIGACHAT_SUMMARIZATION_TRIGGER=0.85
 ```
 
 ## Use With `deepagents`
@@ -123,7 +127,10 @@ from langchain_gigachat import GigaChat
 
 backend = LocalShellBackend(root_dir=".", virtual_mode=True)
 agent = create_deep_agent(
-    model=GigaChat(model="GigaChat-3-Ultra"),
+    model=GigaChat(
+        model="GigaChat-3-Ultra",
+        profile={"max_input_tokens": 128_000},
+    ),
     backend=backend,
 )
 ```
@@ -131,6 +138,72 @@ agent = create_deep_agent(
 If you run with `virtual_mode=False`, filesystem tool paths follow the real host
 filesystem instead; the relative-path prompts in this profile will not match
 that mode.
+
+### Context window and automatic summarization
+
+`deepagents` includes automatic conversation summarization. Before each model
+call it estimates the size of the system prompt, messages, tool calls, tool
+results, and tool schemas. When the configured threshold is reached, older
+messages are persisted under `/conversation_history`, summarized, and replaced
+in the effective model request by a summary plus a recent unsummarized tail.
+The raw graph message log is retained.
+
+The stock model-aware policy is:
+
+- summarize at 85% of `model.profile["max_input_tokens"]`;
+- preserve the newest 10% of the context window;
+- truncate large arguments from old file-tool calls before full compaction;
+- summarize and retry when a model raises LangChain's `ContextOverflowError`.
+
+`langchain-gigachat` 0.5.x does not currently populate `model.profile`.
+Without this information, `deepagents` falls back to a 170,000-token trigger,
+which is later than the 128,000-token context window of current GigaChat 2 and
+GigaChat 3 Ultra models. It also cannot recognize the provider-specific HTTP
+413 exception as a LangChain context overflow by itself.
+
+The current GigaChat `GET /models/{model}` response contains the model ID,
+object type, and owner, but does not expose a context-window field. Until the
+API and SDK provide it, the harness maintains an explicit model table:
+
+| Model IDs | Context window |
+| --- | ---: |
+| `GigaChat`, `GigaChat-Lite`, `GigaChat-2`, `GigaChat-2-Lite` | 128,000 |
+| `GigaChat-Pro`, `GigaChat-2-Pro` | 128,000 |
+| `GigaChat-Max`, `GigaChat-2-Max` | 128,000 |
+| `GigaChat-3-Ultra` | 128,000 |
+
+Version suffixes such as `GigaChat-3-Ultra:32.3.18.5`, provider prefixes, and
+the `-preview` suffix are normalized before lookup.
+
+For the complete stock behavior, pass the profile explicitly when constructing
+the model using metadata from your deployment:
+
+```python
+model = GigaChat(
+    model="GigaChat-3-Ultra",
+    profile={"max_input_tokens": 128_000},
+)
+```
+
+The harness profile also installs `ContextWindowGuardMiddleware` for
+already-created, unprofiled model instances. For IDs in the table it performs
+proactive compaction at 85% of the model window. Unknown IDs use the reactive
+fallback: a GigaChat payload-too-large response is translated into
+`ContextOverflowError`, allowing Deep Agents to compact and retry instead of
+failing the run.
+
+Override the table for a deployment without changing application code:
+
+```bash
+DEEPAGENTS_GIGACHAT_CONTEXT_WINDOW=128000
+DEEPAGENTS_GIGACHAT_SUMMARIZATION_TRIGGER=0.80
+```
+
+When configured, the guard estimates the complete request and triggers the
+standard Deep Agents compaction path at the selected fraction. It only preempts
+requests when there is enough message history to compact. A single oversized
+initial prompt cannot be repaired by conversation summarization and should be
+reduced or moved into workspace files instead.
 
 ## Use With `deepagents-code`
 
@@ -244,18 +317,6 @@ Three independent ways to override the default at runtime:
 - **From the environment:** set `GIGACHAT_MODEL=GigaChat-Pro` before
   launching. (This is honoured by `langchain-gigachat` itself when the
   model name isn't pinned in the config.)
-
-### Self-hosted / IFT GigaChat endpoint
-
-Point `base_url` at your custom host. For Sber's internal IFT, for
-example:
-
-```toml
-[models.providers.gigachat.params]
-base_url = "https://gigachat.ift.sberdevices.ru/v1"
-```
-
-Everything else stays the same.
 
 ## Examples
 

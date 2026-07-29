@@ -6,12 +6,21 @@ import asyncio
 import contextvars
 from importlib.metadata import entry_points
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
+import pytest
+from deepagents.backends import LocalShellBackend
+from deepagents.middleware.summarization import create_summarization_middleware
 from deepagents.profiles.harness.harness_profiles import _get_harness_profile
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain.agents.middleware.types import ModelRequest, ModelResponse
+from langchain_core.exceptions import ContextOverflowError
+from langchain_core.language_models.fake_chat_models import FakeListChatModel
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from deepagents_gigachat import (
+    GIGACHAT_CONTEXT_WINDOWS,
+    ContextWindowGuardMiddleware,
     DeterministicOutputMiddleware,
     LoopBreakerMiddleware,
     ShellSafetyMiddleware,
@@ -77,10 +86,35 @@ def test_register_harness_uses_both_provider_aliases(monkeypatch: Any) -> None:
     assert "RELATIVE paths" in profile.tool_description_overrides["execute"]
     middleware_names = {type(middleware).__name__ for middleware in profile.extra_middleware}
     assert "PathNormalizerMiddleware" in middleware_names
+    assert "ContextWindowGuardMiddleware" in middleware_names
     assert "DeterministicOutputMiddleware" in middleware_names
     assert "SpecificationAuditMiddleware" in middleware_names
     assert "MemoryTaskMiddleware" in middleware_names
     assert "AgentsMdInjectMiddleware" not in middleware_names
+
+
+def test_register_harness_configures_context_guard(monkeypatch: Any) -> None:
+    captured: dict[str, Any] = {}
+
+    monkeypatch.setattr(
+        harness_profile,
+        "register_harness_profile",
+        lambda provider, profile: captured.setdefault(provider, profile),
+    )
+
+    harness_profile.register_harness(
+        context_window=64_000,
+        summarization_trigger=0.75,
+    )
+
+    guard = next(
+        middleware
+        for middleware in captured["gigachat"].extra_middleware
+        if isinstance(middleware, ContextWindowGuardMiddleware)
+    )
+    assert guard.context_window == 64_000
+    assert guard.trigger_fraction == 0.75
+    assert guard.trigger_tokens == 48_000
 
 
 def test_register_harness_can_use_external_runtime_profile(monkeypatch: Any) -> None:
@@ -130,6 +164,136 @@ def test_shell_safety_middleware_supports_async_tool_calls() -> None:
     assert result.name == "execute"
     assert result.tool_call_id == "call_1"
     assert "[SHELL-SAFETY]" in result.content
+
+
+def test_context_guard_requests_compaction_for_unprofiled_model() -> None:
+    middleware = ContextWindowGuardMiddleware(
+        context_window=400,
+        trigger_fraction=0.5,
+    )
+    request = SimpleNamespace(
+        model=SimpleNamespace(profile=None),
+        messages=[HumanMessage(content="x" * 200) for _ in range(7)],
+        system_message=SystemMessage(content="system"),
+        tools=[],
+    )
+
+    with pytest.raises(ContextOverflowError, match="proactive compaction"):
+        middleware.wrap_model_call(request, lambda _request: "unreachable")
+
+
+def test_context_guard_defers_to_stock_summarizer_for_profiled_model() -> None:
+    middleware = ContextWindowGuardMiddleware(
+        context_window=400,
+        trigger_fraction=0.5,
+    )
+    request = SimpleNamespace(
+        model=SimpleNamespace(profile={"max_input_tokens": 400}),
+        messages=[HumanMessage(content="x" * 200) for _ in range(7)],
+        system_message=None,
+        tools=[],
+    )
+
+    assert middleware.wrap_model_call(request, lambda _request: "ok") == "ok"
+
+
+def test_context_guard_does_not_assume_an_unprofiled_context_window() -> None:
+    middleware = ContextWindowGuardMiddleware()
+    request = SimpleNamespace(
+        model=SimpleNamespace(profile=None, model="Unknown-GigaChat-Model"),
+        messages=[HumanMessage(content="x" * 200_000) for _ in range(7)],
+        system_message=None,
+        tools=[],
+    )
+
+    assert middleware.wrap_model_call(request, lambda _request: "ok") == "ok"
+    assert middleware.context_window is None
+    assert middleware.trigger_tokens is None
+
+
+@pytest.mark.parametrize(
+    "model_name",
+    [
+        "GigaChat",
+        "GigaChat-Lite",
+        "GigaChat-Pro",
+        "GigaChat-Max",
+        "GigaChat-2",
+        "GigaChat-2-Lite",
+        "GigaChat-2-Pro",
+        "GigaChat-2-Max",
+        "GigaChat-3-Ultra",
+        "GigaChat-2-Pro-preview",
+        "GigaChat-3-Ultra:32.3.18.5",
+        "gigachat:GigaChat-2-Max",
+    ],
+)
+def test_context_guard_knows_gigachat_generation_models(model_name: str) -> None:
+    middleware = ContextWindowGuardMiddleware()
+    model = SimpleNamespace(profile=None, model=model_name)
+
+    assert middleware.context_window_for_model(model) == 128_000
+
+
+def test_public_context_window_table_covers_current_model_families() -> None:
+    assert GIGACHAT_CONTEXT_WINDOWS["GigaChat-2"] == 128_000
+    assert GIGACHAT_CONTEXT_WINDOWS["GigaChat-2-Pro"] == 128_000
+    assert GIGACHAT_CONTEXT_WINDOWS["GigaChat-2-Max"] == 128_000
+    assert GIGACHAT_CONTEXT_WINDOWS["GigaChat-3-Ultra"] == 128_000
+
+
+def test_context_guard_translates_gigachat_payload_overflow() -> None:
+    middleware = ContextWindowGuardMiddleware()
+    request = SimpleNamespace(
+        model=SimpleNamespace(profile=None),
+        messages=[],
+        system_message=None,
+        tools=[],
+    )
+    provider_error = type("RequestEntityTooLargeError", (Exception,), {})
+
+    def raise_provider_error(_request: Any) -> None:
+        raise provider_error("Payload too large")
+
+    with pytest.raises(ContextOverflowError, match="context window") as raised:
+        middleware.wrap_model_call(request, raise_provider_error)
+
+    assert isinstance(raised.value.__cause__, provider_error)
+
+
+def test_context_guard_drives_stock_summarization_retry(tmp_path: Path) -> None:
+    model = FakeListChatModel(responses=["summary"])
+    summarization = create_summarization_middleware(
+        model,
+        LocalShellBackend(root_dir=tmp_path, virtual_mode=True),
+    )
+    guard = ContextWindowGuardMiddleware(
+        context_window=400,
+        trigger_fraction=0.5,
+    )
+    request = ModelRequest(
+        model=model,
+        messages=[HumanMessage(content="x" * 200) for _ in range(7)],
+        state={},
+    )
+    model_requests: list[Any] = []
+
+    def model_handler(compacted_request: Any) -> ModelResponse:
+        model_requests.append(compacted_request)
+        return ModelResponse(result=[AIMessage(content="final")])
+
+    result = summarization.wrap_model_call(
+        request,
+        lambda compacted_request: guard.wrap_model_call(
+            compacted_request,
+            model_handler,
+        ),
+    )
+
+    assert len(model_requests) == 1
+    assert model_requests[0].messages[0].additional_kwargs["lc_source"] == "summarization"
+    assert result.command is not None
+    assert "_summarization_event" in result.command.update
 
 
 def test_workspace_path_is_isolated_by_execution_context(tmp_path: Path) -> None:

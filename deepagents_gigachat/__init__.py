@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from deepagents_gigachat.harness_profile import (
+    GIGACHAT_CONTEXT_WINDOWS,
+    ContextWindowGuardMiddleware,
     DeterministicOutputMiddleware,
     LoopBreakerMiddleware,
     ShellSafetyMiddleware,
@@ -17,7 +19,9 @@ from deepagents_gigachat.harness_profile import (
 from deepagents_gigachat.prompts import build_system_prompt
 
 __all__ = [
+    "ContextWindowGuardMiddleware",
     "DeterministicOutputMiddleware",
+    "GIGACHAT_CONTEXT_WINDOWS",
     "LoopBreakerMiddleware",
     "ShellSafetyMiddleware",
     "SpecificationAuditMiddleware",
