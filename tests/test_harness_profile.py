@@ -3,18 +3,26 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 from importlib.metadata import entry_points
+from pathlib import Path
 from typing import Any
 
 from deepagents.profiles.harness.harness_profiles import _get_harness_profile
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from deepagents_gigachat import (
+    DeterministicOutputMiddleware,
+    LoopBreakerMiddleware,
     ShellSafetyMiddleware,
+    SpecificationAuditMiddleware,
     ToolContractMiddleware,
     build_system_prompt,
+    get_initial_workspace_files,
+    get_workspace_path,
     harness_profile,
     register_harness,
+    set_workspace_path,
 )
 
 
@@ -69,6 +77,8 @@ def test_register_harness_uses_both_provider_aliases(monkeypatch: Any) -> None:
     assert "RELATIVE paths" in profile.tool_description_overrides["execute"]
     middleware_names = {type(middleware).__name__ for middleware in profile.extra_middleware}
     assert "PathNormalizerMiddleware" in middleware_names
+    assert "DeterministicOutputMiddleware" in middleware_names
+    assert "SpecificationAuditMiddleware" in middleware_names
     assert "MemoryTaskMiddleware" in middleware_names
     assert "AgentsMdInjectMiddleware" not in middleware_names
 
@@ -120,3 +130,196 @@ def test_shell_safety_middleware_supports_async_tool_calls() -> None:
     assert result.name == "execute"
     assert result.tool_call_id == "call_1"
     assert "[SHELL-SAFETY]" in result.content
+
+
+def test_workspace_path_is_isolated_by_execution_context(tmp_path: Path) -> None:
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    (first / "first.txt").write_text("one", encoding="utf-8")
+    (second / "second.txt").write_text("two", encoding="utf-8")
+    set_workspace_path(first)
+
+    other_context = contextvars.copy_context()
+    other_context.run(set_workspace_path, second)
+
+    assert get_workspace_path() == first
+    assert other_context.run(get_workspace_path) == second
+    assert get_initial_workspace_files() == frozenset({"first.txt"})
+    assert other_context.run(get_initial_workspace_files) == frozenset({"second.txt"})
+
+
+def test_deterministic_output_guard_blocks_mental_scalar_write(tmp_path: Path) -> None:
+    (tmp_path / "input.csv").write_text("value\n1\n", encoding="utf-8")
+    set_workspace_path(tmp_path)
+    middleware = DeterministicOutputMiddleware()
+    request = type(
+        "Request",
+        (),
+        {
+            "tool_call": {
+                "id": "call_1",
+                "name": "write_file",
+                "args": {"file_path": "total.txt", "content": "7"},
+            },
+            "state": {
+                "messages": [
+                    HumanMessage(content="Count values."),
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "read_file",
+                                "args": {"file_path": "input.csv"},
+                                "id": "read_1",
+                            }
+                        ],
+                    ),
+                ]
+            },
+        },
+    )()
+
+    result = middleware.wrap_tool_call(
+        request,
+        lambda _request: (_ for _ in ()).throw(AssertionError("must be blocked")),
+    )
+
+    assert "[DETERMINISTIC-OUTPUT]" in result.content
+
+
+def test_deterministic_output_guard_allows_write_after_python_execute(tmp_path: Path) -> None:
+    (tmp_path / "input.csv").write_text("value\n1\n", encoding="utf-8")
+    set_workspace_path(tmp_path)
+    middleware = DeterministicOutputMiddleware()
+    expected = ToolMessage(content="ok", tool_call_id="call_2", name="write_file")
+    request = type(
+        "Request",
+        (),
+        {
+            "tool_call": {
+                "id": "call_2",
+                "name": "write_file",
+                "args": {"file_path": "total.txt", "content": "1"},
+            },
+            "state": {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "execute",
+                                "args": {"command": "python3 <<'PY'\nprint(1)\nPY"},
+                                "id": "run_1",
+                            }
+                        ],
+                    )
+                ]
+            },
+        },
+    )()
+
+    assert middleware.wrap_tool_call(request, lambda _request: expected) is expected
+
+
+def test_deterministic_next_step_nudge_follows_observation(tmp_path: Path) -> None:
+    set_workspace_path(tmp_path)
+    middleware = DeterministicOutputMiddleware()
+    state = {
+        "messages": [
+            HumanMessage(content="Derive an output from input.txt."),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "read_file",
+                        "args": {"file_path": "input.txt"},
+                        "id": "read_1",
+                    }
+                ],
+            ),
+            ToolMessage(content="data", tool_call_id="read_1", name="read_file"),
+        ]
+    }
+
+    result = middleware.before_model(state, runtime=None)  # type: ignore[arg-type]
+
+    assert result is not None
+    assert "NEXT tool must be `execute`" in result["messages"][0].content
+
+
+def test_deterministic_nudge_is_suppressed_for_skill_workspace(tmp_path: Path) -> None:
+    (tmp_path / ".agents" / "skills").mkdir(parents=True)
+    set_workspace_path(tmp_path)
+    middleware = DeterministicOutputMiddleware()
+    state = {
+        "messages": [
+            HumanMessage(content="Apply the relevant skill."),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "read_file",
+                        "args": {"file_path": ".agents/skills/example/SKILL.md"},
+                        "id": "read_skill",
+                    }
+                ],
+            ),
+            ToolMessage(content="rules", tool_call_id="read_skill", name="read_file"),
+        ]
+    }
+
+    assert middleware.before_model(state, runtime=None) is None  # type: ignore[arg-type]
+
+
+def test_specification_audit_targets_only_newly_created_outputs(tmp_path: Path) -> None:
+    (tmp_path / "input.json").write_text("{}", encoding="utf-8")
+    set_workspace_path(tmp_path)
+    middleware = SpecificationAuditMiddleware()
+    input_state = {
+        "messages": [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "read_file",
+                        "args": {"file_path": "input.json"},
+                        "id": "read_input",
+                    }
+                ],
+            ),
+            ToolMessage(content="{}", tool_call_id="read_input", name="read_file"),
+        ]
+    }
+    assert middleware.before_model(input_state, runtime=None) is None  # type: ignore[arg-type]
+
+    output_state = {
+        "messages": [
+            HumanMessage(content="Create report.json with exact fields."),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "read_file",
+                        "args": {"file_path": "report.json"},
+                        "id": "read_output",
+                    }
+                ],
+            ),
+            ToolMessage(content='{"value": 1}', tool_call_id="read_output", name="read_file"),
+        ]
+    }
+    result = middleware.before_model(output_state, runtime=None)  # type: ignore[arg-type]
+    assert result is not None
+    assert "Exact value types" in result["messages"][0].content
+
+
+def test_loop_breaker_nudge_markers_are_detected_across_ai_turns() -> None:
+    messages = [
+        HumanMessage(content="[BUDGET-NUDGE-BATCH] switch strategy"),
+        AIMessage(content="", tool_calls=[{"name": "read_file", "args": {}, "id": "1"}]),
+        ToolMessage(content="ok", tool_call_id="1", name="read_file"),
+    ]
+
+    assert LoopBreakerMiddleware._already_nudged(messages, "[BUDGET-NUDGE-BATCH]")

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
@@ -167,6 +168,214 @@ class PathNormalizerMiddleware(AgentMiddleware):
                 name=result.name,
             )
         return result
+
+
+class DeterministicOutputMiddleware(AgentMiddleware):
+    """Prevent ungrounded direct writes for derived data outputs.
+
+    The guard is deliberately structural rather than task-specific. It only
+    applies when a new scalar/structured output is being written in a workspace
+    that already contains source files, and no deterministic computation tool
+    has run. Source-code deliverables and edits to existing files are untouched.
+    """
+
+    name = "DeterministicOutputMiddleware"
+    _DECISION_MARKER = "[DETERMINISTIC-NEXT-STEP]"
+    _OBSERVATION_TOOLS = {"glob", "grep", "ls", "read_file"}
+    _STRUCTURED_SUFFIXES = {".csv", ".json", ".jsonl", ".tsv"}
+    _SOURCE_SUFFIXES = {
+        ".csv",
+        ".db",
+        ".json",
+        ".jsonl",
+        ".log",
+        ".sqlite",
+        ".tsv",
+        ".txt",
+        ".xlsx",
+        ".xml",
+    }
+    _CODE_SUFFIXES = {".awk", ".js", ".pl", ".py", ".rb", ".sh", ".sql", ".ts"}
+    _DETERMINISTIC_COMMAND = re.compile(
+        r"\b(?:awk|jq|python|python3|sed|sha256sum|sqlite3|wc)\b"
+    )
+
+    @staticmethod
+    def _is_skill_workspace() -> bool:
+        workspace = get_workspace_path()
+        return (
+            workspace is not None
+            and (workspace / ".agents" / "skills").is_dir()
+        )
+
+    @staticmethod
+    def _tool_calls(messages: list[Any]) -> list[dict[str, Any]]:
+        return [
+            call
+            for message in messages
+            if isinstance(message, AIMessage)
+            for call in (getattr(message, "tool_calls", None) or [])
+        ]
+
+    @classmethod
+    def _has_deterministic_call(cls, messages: list[Any]) -> bool:
+        for call in cls._tool_calls(messages):
+            if call.get("name") == "execute":
+                command = str((call.get("args") or {}).get("command", ""))
+                if cls._DETERMINISTIC_COMMAND.search(command):
+                    return True
+        return False
+
+    @classmethod
+    def _requires_computation(cls, workspace: Path, path: str, content: str) -> bool:
+        target = workspace / path.lstrip("/")
+        if target.exists() or target.suffix.lower() in cls._CODE_SUFFIXES:
+            return False
+        try:
+            existing_files = [item for item in workspace.rglob("*") if item.is_file()]
+        except OSError:
+            return False
+        if not existing_files:
+            return False
+        if re.fullmatch(r"\s*[-+]?\d+(?:\.\d+)?\s*", content):
+            return True
+        if target.suffix.lower() not in cls._STRUCTURED_SUFFIXES:
+            return False
+        return any(
+            item.suffix.lower() in cls._SOURCE_SUFFIXES and item != target
+            for item in existing_files
+        )
+
+    def _blocked_result(self, request: Any) -> ToolMessage | None:
+        if self._is_skill_workspace():
+            return None
+        tool_call = getattr(request, "tool_call", {}) or {}
+        if tool_call.get("name") != "write_file":
+            return None
+        args = tool_call.get("args", {}) or {}
+        path = str(args.get("file_path") or args.get("path") or "")
+        content = str(args.get("content") or "")
+        workspace = get_workspace_path()
+        state = getattr(request, "state", {}) or {}
+        messages = state.get("messages", []) if isinstance(state, dict) else []
+        if (
+            not path
+            or workspace is None
+            or self._has_deterministic_call(messages)
+            or not self._requires_computation(workspace, path, content)
+        ):
+            return None
+        return ToolMessage(
+            content=(
+                "[DETERMINISTIC-OUTPUT] Directly writing a guessed/mentally computed "
+                "derived value is blocked. Use `execute` with a single-quoted Python 3 "
+                "heredoc (`python3 <<'PY' ... PY`) to read the actual workspace inputs and "
+                "create the requested output deterministically. Do not create a helper "
+                "script inside the workspace because it may contaminate recursive counts, "
+                "manifests, or searches."
+            ),
+            tool_call_id=tool_call.get("id", ""),
+            name="write_file",
+        )
+
+    def before_model(self, state: Any, runtime: Runtime[Any]) -> dict[str, Any] | None:  # noqa: ARG002
+        if self._is_skill_workspace():
+            return None
+        messages = state.get("messages") if isinstance(state, dict) else getattr(state, "messages", None)
+        if not messages or LoopBreakerMiddleware._already_nudged(
+            messages, self._DECISION_MARKER
+        ):
+            return None
+        calls = self._tool_calls(messages)
+        if not calls or self._has_deterministic_call(messages):
+            return None
+        last_call = calls[-1]
+        if last_call.get("name") not in self._OBSERVATION_TOOLS:
+            return None
+        return {
+            "messages": [
+                HumanMessage(
+                    content=(
+                        f"{self._DECISION_MARKER} Decide how the inspected content affects "
+                        "the requested result. If the result requires counting, filtering, "
+                        "parsing, aggregation, hashing, ordering, or another derived "
+                        "transformation, your NEXT tool must be `execute` with a single-quoted "
+                        "Python 3 heredoc (`python3 <<'PY' ... PY`); have that code read the "
+                        "real workspace files and write the final output. Do not compute or "
+                        "transcribe derived values mentally. For a multi-rule transformation "
+                        "or code, first use `think` to enumerate the exact output fields and "
+                        "types, ordering/tie-break rules, missing-value conventions, and every "
+                        "edge-case branch from the user's request. If the task is only a "
+                        "literal surgical text edit, proceed with `edit_file` instead."
+                    )
+                )
+            ]
+        }
+
+    def wrap_tool_call(self, request: Any, handler: Any) -> ToolMessage:
+        return self._blocked_result(request) or handler(request)
+
+    async def awrap_tool_call(self, request: Any, handler: Any) -> ToolMessage:
+        return self._blocked_result(request) or await handler(request)
+
+
+class SpecificationAuditMiddleware(AgentMiddleware):
+    """Audit newly generated outputs against the user's explicit contract.
+
+    The middleware records the files present when the runner selects a workspace.
+    When the agent later reads a newly created file, it gets one concise audit
+    pass focused on schema fidelity. This is task-agnostic: no benchmark names,
+    filenames, expected values, or domain rules are encoded here.
+    """
+
+    name = "SpecificationAuditMiddleware"
+    _MARKER = "[SPECIFICATION-AUDIT]"
+
+    @staticmethod
+    def _last_tool_call(messages: list[Any]) -> dict[str, Any] | None:
+        for message in reversed(messages):
+            if not isinstance(message, AIMessage):
+                continue
+            calls = getattr(message, "tool_calls", None) or []
+            if calls:
+                return calls[-1]
+        return None
+
+    @staticmethod
+    def _read_path(call: dict[str, Any]) -> str:
+        args = call.get("args", {}) or {}
+        return str(args.get("file_path") or args.get("path") or "").lstrip("/")
+
+    def before_model(self, state: Any, runtime: Runtime[Any]) -> dict[str, Any] | None:  # noqa: ARG002
+        messages = state.get("messages") if isinstance(state, dict) else getattr(state, "messages", None)
+        if not messages or LoopBreakerMiddleware._already_nudged(messages, self._MARKER):
+            return None
+        call = self._last_tool_call(messages)
+        if not call or call.get("name") != "read_file":
+            return None
+        path = self._read_path(call)
+        if not path or path in get_initial_workspace_files():
+            return None
+        return {
+            "messages": [
+                HumanMessage(
+                    content=(
+                        f"{self._MARKER} You just inspected the generated output `{path}`. "
+                        "Before finishing, compare it field-by-field with the user's original "
+                        "contract; do not merely declare it correct.\n"
+                        "- Exact filename, field/column/key names, nesting, and no extra fields.\n"
+                        "- Exact value types: number vs string vs null vs empty string vs list/object.\n"
+                        "- Required ordering, stable input order, tie-breakers, and deduplication rules.\n"
+                        "- Every named status/branch and all positive, negative, missing, retry, "
+                        "and boundary cases in the request.\n"
+                        "- For code, execute focused examples covering every stated branch and "
+                        "fix the implementation if any result differs.\n"
+                        "If any requirement is not visibly satisfied, fix the output now and "
+                        "read it once more. Otherwise finish."
+                    )
+                )
+            ]
+        }
 
 
 class MemoryTaskMiddleware(AgentMiddleware):
@@ -371,29 +580,34 @@ class LoopBreakerMiddleware(AgentMiddleware):
 
     @staticmethod
     def _already_nudged(messages: list[Any], marker: str) -> bool:
-        for msg in reversed(messages):
+        for msg in messages:
             content = getattr(msg, "content", "") or ""
             if isinstance(content, str) and marker in content:
                 return True
-            if isinstance(msg, AIMessage):
-                break
         return False
 
-    def _budget_nudge(self, tool_rounds: int) -> str:
+    def _budget_nudge(self, tool_rounds: int, *, final: bool = False) -> str:
+        marker = "[BUDGET-NUDGE-FINAL]" if final else "[BUDGET-NUDGE-BATCH]"
+        if final:
+            return (
+                f"{marker} You have made {tool_rounds} tool calls. Complete the remaining "
+                "deliverables now, run one focused verification, fix any reported failure, "
+                "and finish. Do not restart exploration or repeat a failed call shape."
+            )
         return (
-            "[BUDGET-NUDGE] You have made "
-            f"{tool_rounds} tool calls. STOP exploring and finish the task NOW.\n"
-            "- Simple count task? write_file run.py + execute python run.py → done.\n"
-            "- Required output file not written yet? write_file it immediately.\n"
-            "- Do NOT make more read/grep calls. Write your best answer and finish."
+            f"{marker} You have made {tool_rounds} tool calls. Preserve completed work, "
+            "but switch to a bounded batch strategy now.\n"
+            "- Use one script/command for repeated edits, parsing, or ordered operations.\n"
+            "- Do not retry the same tool/error shape.\n"
+            "- Then verify the requested outputs once and finish."
         )
 
     def _grep_empty_nudge(self) -> str:
         return (
             "[LOOP-BREAKER] grep returned 0 matches twice. Do NOT grep again.\n"
-            "Switch to: write_file run.py using pathlib.Path('tests').rglob('*.py') "
-            "(or the right directory), count occurrences in a loop, "
-            "open('count.txt','w').write(str(total)), then execute python run.py."
+            "Switch to one `execute` call using `python3 <<'PY' ... PY`, scan the "
+            "right directory with pathlib.rglob, and write the requested final output. "
+            "Do not create a helper file inside the scanned workspace."
         )
 
     def before_model(self, state: Any, runtime: Runtime[Any]) -> dict[str, Any] | None:  # noqa: ARG002
@@ -403,8 +617,21 @@ class LoopBreakerMiddleware(AgentMiddleware):
 
         tool_rounds = self._count_tool_rounds(messages)
 
-        # High call-count guard: force finish on simple-looking tasks.
-        if tool_rounds >= 12 and not self._already_nudged(messages, "[BUDGET-NUDGE]"):
+        # Staged call-count guard. Each marker is injected at most once. The
+        # previous implementation only searched back to the latest AIMessage,
+        # so it re-injected the same nudge on every subsequent model turn and
+        # could itself keep a task in a loop.
+        if tool_rounds >= 24 and not self._already_nudged(
+            messages, "[BUDGET-NUDGE-FINAL]"
+        ):
+            return {
+                "messages": [
+                    HumanMessage(content=self._budget_nudge(tool_rounds, final=True))
+                ]
+            }
+        if tool_rounds >= 12 and not self._already_nudged(
+            messages, "[BUDGET-NUDGE-BATCH]"
+        ):
             return {"messages": [HumanMessage(content=self._budget_nudge(tool_rounds))]}
 
         # Grep-empty streak: common on count tasks that return 0 forever.
@@ -438,14 +665,10 @@ class LoopBreakerMiddleware(AgentMiddleware):
         if not (all_same_call or all_same_tool_errors or all_same_error_family):
             return None
 
-        # Avoid injecting the same nudge twice in a row.
+        # Avoid injecting the same nudge more than once in a run.
         already_injected_marker = "[LOOP-BREAKER]"
-        for m in reversed(messages):
-            content = getattr(m, "content", "") or ""
-            if isinstance(content, str) and already_injected_marker in content:
-                return None
-            if isinstance(m, AIMessage):
-                break
+        if self._already_nudged(messages, already_injected_marker):
+            return None
         tool_name = pairs[0][0]
         last_result = pairs[0][2][:300]
         nudge = (
@@ -456,12 +679,12 @@ class LoopBreakerMiddleware(AgentMiddleware):
             f"`read_file`: you are leaking the leading '<line_no>\\t' prefix. "
             f"Strip the spaces + number + tab before reusing the text. "
             f"`     3\\tHello` in display means the file contains just `Hello`.\n"
-            f"- If `python -c \"...\"` keeps giving SyntaxError: switch to "
-            f"`write_file run.py \"<multi-line code>\"`, then `execute python run.py`.\n"
+            f"- If `python3 -c \"...\"` keeps giving SyntaxError: switch to one "
+            f"`execute` call with a single-quoted Python 3 heredoc.\n"
             f"- If a filesystem tool path failed, use a relative path like "
             f"`foo.py` or `src/foo.py`. Do NOT use absolute paths.\n"
             f"- If `grep`/`glob` returns nothing useful: for count tasks, write "
-            f"`run.py` with pathlib.rglob — do NOT keep grepping.\n"
+            f"a Python 3 heredoc with pathlib.rglob — do NOT keep grepping.\n"
             f"- If `write_file` says 'already exists': the right tool is "
             f"`edit_file`, NOT another `write_file` with a new name.\n"
             f"- If a CLI/runtime tool says 'invalid choice' or 'unrecognized "
@@ -536,8 +759,9 @@ def _tool_description_overrides(profile_variant: str) -> dict[str, str]:
             "the search: path='tests' for tests/*.py, path='src' for src/*.py, "
             "path='.' for the whole workspace. To search several alternatives "
             "run grep several times. The result lists matching lines — read "
-            "it directly. If 0 matches, switch to a Python run.py script with "
-            "pathlib.rglob instead of retrying grep. Returned paths start with "
+            "it directly. If 0 matches, use `execute` with a single-quoted "
+            "Python 3 heredoc and pathlib.rglob instead of retrying grep. "
+            "Returned paths start with "
             "'/' — strip it before writing to output files."
         ),
         "execute": (
@@ -554,18 +778,48 @@ def _tool_description_overrides(profile_variant: str) -> dict[str, str]:
     }
 
 
-_workspace_path: Path | None = None
+_workspace_path: ContextVar[Path | None] = ContextVar(
+    "deepagents_gigachat_workspace_path",
+    default=None,
+)
+_initial_workspace_files: ContextVar[frozenset[str]] = ContextVar(
+    "deepagents_gigachat_initial_workspace_files",
+    default=frozenset(),
+)
 
 
-def set_workspace_path(path: Path | str) -> None:
-    """Store the current task workspace so middleware can locate workspace files."""
-    global _workspace_path  # noqa: PLW0603
-    _workspace_path = Path(path) if path is not None else None
+def set_workspace_path(path: Path | str | None) -> None:
+    """Store the current task workspace in the current execution context.
+
+    Benchmark runners build and invoke agents in worker threads. A process-wide
+    global lets concurrent tasks overwrite each other's workspace, so middleware
+    could inspect the wrong AGENTS.md or fixture. ContextVar keeps the public
+    runner API while isolating each worker context.
+    """
+    workspace = Path(path) if path is not None else None
+    _workspace_path.set(workspace)
+    if workspace is None:
+        _initial_workspace_files.set(frozenset())
+        return
+    try:
+        files = frozenset(
+            item.relative_to(workspace).as_posix()
+            for item in workspace.rglob("*")
+            if item.is_file()
+        )
+    except OSError:
+        files = frozenset()
+    _initial_workspace_files.set(files)
 
 
 def get_workspace_path() -> Path | None:
     """Return the workspace path set by the runner, if any."""
-    return _workspace_path
+    return _workspace_path.get()
+
+
+def get_initial_workspace_files() -> frozenset[str]:
+    """Return workspace-relative files captured when the task was initialized."""
+    return _initial_workspace_files.get()
 
 
 def register_harness(profile_variant: str | None = None, tool_contract: str | None = None) -> None:
@@ -576,6 +830,8 @@ def register_harness(profile_variant: str | None = None, tool_contract: str | No
         ThinkToolMiddleware(),
         ShellSafetyMiddleware(),
         PathNormalizerMiddleware(),
+        DeterministicOutputMiddleware(),
+        SpecificationAuditMiddleware(),
         MemoryTaskMiddleware(),
         LoopBreakerMiddleware(),
     ]
