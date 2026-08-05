@@ -6,7 +6,7 @@ A [`HarnessProfile`](https://docs.langchain.com/oss/python/deepagents/profiles#h
 for [`deepagents`](https://github.com/langchain-ai/deepagents) tuned for
 [GigaChat](https://giga.chat/) models. On the
 [`harness-bench-fast`](https://github.com/ai-forever/harness-bench-fast)
-313-task agent benchmark (v0.9.0) the profile reaches **269 / 313 (85.9 %)**
+371-task agent benchmark (v0.14.0) the profile reaches **331 / 371 (89.2 %)**
 with `GigaChat-3-Ultra` — see the [Benchmark](#benchmark) section for
 methodology and historical results.
 
@@ -61,7 +61,7 @@ GIGACHAT_VERIFY_SSL_CERTS=False
 GIGACHAT_PROFANITY_CHECK=False
 
 # Optional override for the built-in model context-window table.
-DEEPAGENTS_GIGACHAT_CONTEXT_WINDOW=128000
+DEEPAGENTS_GIGACHAT_CONTEXT_WINDOW=261120
 DEEPAGENTS_GIGACHAT_SUMMARIZATION_TRIGGER=0.85
 ```
 
@@ -129,7 +129,7 @@ backend = LocalShellBackend(root_dir=".", virtual_mode=True)
 agent = create_deep_agent(
     model=GigaChat(
         model="GigaChat-3-Ultra",
-        profile={"max_input_tokens": 128_000},
+        profile={"max_input_tokens": 261_120},
     ),
     backend=backend,
 )
@@ -157,20 +157,21 @@ The stock model-aware policy is:
 
 `langchain-gigachat` 0.5.x does not currently populate `model.profile`.
 Without this information, `deepagents` falls back to a 170,000-token trigger,
-which is later than the 128,000-token context window of current GigaChat 2 and
-GigaChat 3 Ultra models. It also cannot recognize the provider-specific HTTP
-413 exception as a LangChain context overflow by itself.
+which is not derived from the selected GigaChat deployment. It also cannot
+recognize the provider-specific HTTP 422 `CONTEXT_TOO_LONG` response as a
+LangChain context overflow by itself.
 
-The current GigaChat `GET /models/{model}` response contains the model ID,
-object type, and owner, but does not expose a context-window field. Until the
-API and SDK provide it, the harness maintains an explicit model table:
+The GigaChat `GET /models/{model}` response contains the model ID, object type,
+and owner, but does not expose a context-window field. Until the API and SDK
+provide it, the harness maintains an explicit model table. The value below was
+measured against the production API on 2026-08-03; deployments can differ, so
+explicit model metadata or an environment override takes precedence:
 
 | Model IDs | Context window |
 | --- | ---: |
-| `GigaChat`, `GigaChat-Lite`, `GigaChat-2`, `GigaChat-2-Lite` | 128,000 |
-| `GigaChat-Pro`, `GigaChat-2-Pro` | 128,000 |
-| `GigaChat-Max`, `GigaChat-2-Max` | 128,000 |
-| `GigaChat-3-Ultra` | 128,000 |
+| `GigaChat`, `GigaChat-Pro`, `GigaChat-Max` | 261,120 |
+| `GigaChat-2`, `GigaChat-2-Pro`, `GigaChat-2-Max`, `GigaChat-2-Reasoning` | 261,120 |
+| `GigaChat-3-Lightning`, `GigaChat-3-Pro`, `GigaChat-3-Ultra` | 261,120 |
 
 Version suffixes such as `GigaChat-3-Ultra:32.3.18.5`, provider prefixes, and
 the `-preview` suffix are normalized before lookup.
@@ -181,7 +182,7 @@ the model using metadata from your deployment:
 ```python
 model = GigaChat(
     model="GigaChat-3-Ultra",
-    profile={"max_input_tokens": 128_000},
+    profile={"max_input_tokens": 261_120},
 )
 ```
 
@@ -195,7 +196,7 @@ failing the run.
 Override the table for a deployment without changing application code:
 
 ```bash
-DEEPAGENTS_GIGACHAT_CONTEXT_WINDOW=128000
+DEEPAGENTS_GIGACHAT_CONTEXT_WINDOW=261120
 DEEPAGENTS_GIGACHAT_SUMMARIZATION_TRIGGER=0.80
 ```
 
@@ -346,19 +347,19 @@ result = agent.invoke({"messages": "Hi! What can you do?"})
 The benchmark used to validate every profile version of this plugin
 now lives in its own repo:
 [`ai-forever/harness-bench-fast`](https://github.com/ai-forever/harness-bench-fast).
-It is a self-contained agent evaluation (currently **313 tasks**, v0.9.0)
+It is a self-contained agent evaluation (currently **371 tasks**, v0.14.0)
 covering file creation/editing, refactors, project-wide `grep`/`glob`, CSV /
 JSON / JSONL / YAML / TOML / INI / XLSX / SQLite pipelines, pytest-graded
 implementations, composite multi-step pipelines, merge/conflict resolution,
 terminal-style parsing, policy/action JSON tasks, and `MEMORY.md` discipline.
 Every verifier is mechanical — no LLM-as-judge.
 
-Latest results on the full 313-task set, `GigaChat-3-Ultra` at
+Latest results on the full 371-task set, `GigaChat-3-Ultra` at
 `gigachat.sberdevices.ru/v1`, `LocalShellBackend(virtual_mode=True)`:
 
-| Configuration                   | PASS / 313 | %      |
+| Configuration                   | PASS / 371 | %      |
 | ------------------------------- | ---------- | ------ |
-| `deepagents` + this plugin      | 269 / 313  | 85.9 % |
+| `deepagents` + this plugin      | 331 / 371  | 89.2 % |
 
 Historical uplift on the earlier 231-task subset of the same bench:
 
@@ -368,9 +369,15 @@ Historical uplift on the earlier 231-task subset of the same bench:
 | `deepagents` + this plugin (v9)        | 195 / 231  | 84.4 % | +31 (+13.4 pp)     |
 
 Current middleware stack: `ThinkToolMiddleware`, `ShellSafetyMiddleware`,
-`PathNormalizerMiddleware`, `MemoryTaskMiddleware`, `LoopBreakerMiddleware`,
-optional `ToolContractMiddleware`, plus `base_system_prompt` and tool
-description overrides.
+`PathNormalizerMiddleware`, `ContextWindowGuardMiddleware`,
+`DeterministicOutputMiddleware`, `SpecificationAuditMiddleware`,
+`MemoryTaskMiddleware`, `LoopBreakerMiddleware`, optional
+`ToolContractMiddleware`, plus `base_system_prompt` and tool description
+overrides.
+
+For a plain-language explanation of the latest reliability changes, review
+findings, and their full benchmark validation, see
+[`docs/review-fixes-and-benchmark-2026-08-05.md`](docs/review-fixes-and-benchmark-2026-08-05.md).
 
 ## Lint
 

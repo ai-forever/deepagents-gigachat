@@ -24,22 +24,58 @@ from pydantic import Field
 from deepagents_gigachat.prompts import build_system_prompt
 
 GIGACHAT_CONTEXT_WINDOWS: dict[str, int] = {
-    # Current public API aliases for the GigaChat 2 family.
-    "GigaChat": 128_000,
-    "GigaChat-Lite": 128_000,
-    "GigaChat-Pro": 128_000,
-    "GigaChat-Max": 128_000,
-    "GigaChat-2": 128_000,
-    "GigaChat-2-Lite": 128_000,
-    "GigaChat-2-Pro": 128_000,
-    "GigaChat-2-Max": 128_000,
-    # Current public GigaChat 3 model.
-    "GigaChat-3-Ultra": 128_000,
+    # Public chat-model IDs reported by the API. Context limit measured on
+    # 2026-08-03; deployments may differ, so an explicit model profile,
+    # register_harness(context_window=...), or env override takes precedence.
+    "GigaChat": 261_120,
+    "GigaChat-Pro": 261_120,
+    "GigaChat-Max": 261_120,
+    "GigaChat-2": 261_120,
+    "GigaChat-2-Pro": 261_120,
+    "GigaChat-2-Max": 261_120,
+    "GigaChat-2-Reasoning": 261_120,
+    "GigaChat-3-Lightning": 261_120,
+    "GigaChat-3-Pro": 261_120,
+    "GigaChat-3-Ultra": 261_120,
 }
 _NORMALIZED_CONTEXT_WINDOWS = {
     model_name.casefold(): context_window
     for model_name, context_window in GIGACHAT_CONTEXT_WINDOWS.items()
 }
+_IGNORED_WORKSPACE_DIRS = {
+    ".git",
+    ".hg",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pycache__",
+    "node_modules",
+    "venv",
+}
+_MAX_WORKSPACE_FILES = 20_000
+
+
+def _snapshot_workspace_files(workspace: Path) -> frozenset[str]:
+    """Capture a bounded input-file snapshot without scanning vendor metadata."""
+    files: set[str] = set()
+    try:
+        for root, dirs, names in os.walk(workspace):
+            dirs[:] = [
+                name
+                for name in dirs
+                if name not in _IGNORED_WORKSPACE_DIRS
+            ]
+            root_path = Path(root)
+            for name in names:
+                files.add((root_path / name).relative_to(workspace).as_posix())
+                if len(files) >= _MAX_WORKSPACE_FILES:
+                    return frozenset(files)
+    except OSError:
+        pass
+    return frozenset(files)
 
 
 @tool("think")
@@ -196,7 +232,8 @@ class ContextWindowGuardMiddleware(AgentMiddleware):
     Deep Agents derives fractional summarization thresholds from
     ``model.profile["max_input_tokens"]``.  Current ``langchain-gigachat``
     models leave that profile unset, so the stock middleware falls back to an
-    absolute 170k-token trigger, beyond GigaChat's 128k context window.
+    absolute 170k-token trigger, which is not tied to the active GigaChat
+    deployment's context window.
 
     This middleware runs inside the stock Deep Agents summarizer.  When an
     unprofiled request for a known model reaches the configured safe fraction,
@@ -211,9 +248,12 @@ class ContextWindowGuardMiddleware(AgentMiddleware):
         "RequestEntityTooLargeError",
     }
     _CONTEXT_ERROR_TEXT = (
+        "context_too_long",
+        "context too long",
         "context length",
         "context limit",
         "context window",
+        "maximum allowed context",
         "maximum context",
         "payload too large",
         "too many tokens",
@@ -302,7 +342,7 @@ class ContextWindowGuardMiddleware(AgentMiddleware):
     def _is_summarization_retry(request: Any) -> bool:
         """Return whether Deep Agents just compacted and is retrying the model.
 
-        The stock summarizer calls the inner handler once more with a new
+        In Deep Agents 0.6.10 the stock summarizer calls the inner handler once more with a new
         synthetic summary before its state update is committed.  Raising a
         second overflow from that retry would escape the outer catch block.
         """
@@ -398,9 +438,21 @@ class DeterministicOutputMiddleware(AgentMiddleware):
         r"\b(?:awk|jq|python|python3|sed|sha256sum|sqlite3|wc)\b"
     )
 
-    @staticmethod
-    def _is_skill_workspace() -> bool:
-        workspace = get_workspace_path()
+    def __init__(
+        self,
+        *,
+        workspace: Path | None = None,
+        initial_workspace_files: frozenset[str] | None = None,
+    ) -> None:
+        self.workspace = workspace if workspace is not None else get_workspace_path()
+        self.initial_workspace_files = (
+            initial_workspace_files
+            if initial_workspace_files is not None
+            else get_initial_workspace_files()
+        )
+
+    def _is_skill_workspace(self) -> bool:
+        workspace = self.workspace
         return (
             workspace is not None
             and (workspace / ".agents" / "skills").is_dir()
@@ -424,24 +476,20 @@ class DeterministicOutputMiddleware(AgentMiddleware):
                     return True
         return False
 
-    @classmethod
-    def _requires_computation(cls, workspace: Path, path: str, content: str) -> bool:
+    def _requires_computation(self, workspace: Path, path: str, content: str) -> bool:
         target = workspace / path.lstrip("/")
-        if target.exists() or target.suffix.lower() in cls._CODE_SUFFIXES:
+        if target.exists() or target.suffix.lower() in self._CODE_SUFFIXES:
             return False
-        try:
-            existing_files = [item for item in workspace.rglob("*") if item.is_file()]
-        except OSError:
-            return False
-        if not existing_files:
+        if not self.initial_workspace_files:
             return False
         if re.fullmatch(r"\s*[-+]?\d+(?:\.\d+)?\s*", content):
             return True
-        if target.suffix.lower() not in cls._STRUCTURED_SUFFIXES:
+        if target.suffix.lower() not in self._STRUCTURED_SUFFIXES:
             return False
         return any(
-            item.suffix.lower() in cls._SOURCE_SUFFIXES and item != target
-            for item in existing_files
+            Path(item).suffix.lower() in self._SOURCE_SUFFIXES
+            and item != path.lstrip("/")
+            for item in self.initial_workspace_files
         )
 
     def _blocked_result(self, request: Any) -> ToolMessage | None:
@@ -453,7 +501,7 @@ class DeterministicOutputMiddleware(AgentMiddleware):
         args = tool_call.get("args", {}) or {}
         path = str(args.get("file_path") or args.get("path") or "")
         content = str(args.get("content") or "")
-        workspace = get_workspace_path()
+        workspace = self.workspace
         state = getattr(request, "state", {}) or {}
         messages = state.get("messages", []) if isinstance(state, dict) else []
         if (
@@ -477,7 +525,7 @@ class DeterministicOutputMiddleware(AgentMiddleware):
         )
 
     def before_model(self, state: Any, runtime: Runtime[Any]) -> dict[str, Any] | None:  # noqa: ARG002
-        if self._is_skill_workspace():
+        if self.workspace is None or self._is_skill_workspace():
             return None
         messages = state.get("messages") if isinstance(state, dict) else getattr(state, "messages", None)
         if not messages or LoopBreakerMiddleware._already_nudged(
@@ -529,6 +577,19 @@ class SpecificationAuditMiddleware(AgentMiddleware):
     name = "SpecificationAuditMiddleware"
     _MARKER = "[SPECIFICATION-AUDIT]"
 
+    def __init__(
+        self,
+        *,
+        workspace: Path | None = None,
+        initial_workspace_files: frozenset[str] | None = None,
+    ) -> None:
+        self.workspace = workspace if workspace is not None else get_workspace_path()
+        self.initial_workspace_files = (
+            initial_workspace_files
+            if initial_workspace_files is not None
+            else get_initial_workspace_files()
+        )
+
     @staticmethod
     def _last_tool_call(messages: list[Any]) -> dict[str, Any] | None:
         for message in reversed(messages):
@@ -545,6 +606,8 @@ class SpecificationAuditMiddleware(AgentMiddleware):
         return str(args.get("file_path") or args.get("path") or "").lstrip("/")
 
     def before_model(self, state: Any, runtime: Runtime[Any]) -> dict[str, Any] | None:  # noqa: ARG002
+        if self.workspace is None:
+            return None
         messages = state.get("messages") if isinstance(state, dict) else getattr(state, "messages", None)
         if not messages or LoopBreakerMiddleware._already_nudged(messages, self._MARKER):
             return None
@@ -552,7 +615,7 @@ class SpecificationAuditMiddleware(AgentMiddleware):
         if not call or call.get("name") != "read_file":
             return None
         path = self._read_path(call)
-        if not path or path in get_initial_workspace_files():
+        if not path or path in self.initial_workspace_files:
             return None
         return {
             "messages": [
@@ -583,9 +646,11 @@ class MemoryTaskMiddleware(AgentMiddleware):
     _START_MARKER = "[MEMORY-TASK]"
     _SAVE_MARKER = "[MEMORY-SAVE]"
 
-    @staticmethod
-    def _is_memory_workspace() -> bool:
-        wp = get_workspace_path()
+    def __init__(self, *, workspace: Path | None = None) -> None:
+        self.workspace = workspace if workspace is not None else get_workspace_path()
+
+    def _is_memory_workspace(self) -> bool:
+        wp = self.workspace
         return wp is not None and (wp / "AGENTS.md").exists()
 
     @staticmethod
@@ -667,8 +732,9 @@ class LoopBreakerMiddleware(AgentMiddleware):
 
     This middleware watches `messages` in `before_model` and, when it sees
     the same `(tool_name, args)` for 3 consecutive AIMessages, appends a
-    one-shot SystemMessage with a forceful instruction to STOP and switch
-    strategy. The model usually breaks out of the loop on the next turn.
+    bounded HumanMessage nudges with a forceful instruction to STOP and switch
+    strategy. Separate markers keep a failed-tool loop from suppressing a later
+    empty-grep loop in the same run.
     """
 
     name = "LoopBreakerMiddleware"
@@ -778,11 +844,16 @@ class LoopBreakerMiddleware(AgentMiddleware):
 
     @staticmethod
     def _already_nudged(messages: list[Any], marker: str) -> bool:
+        return LoopBreakerMiddleware._nudge_count(messages, marker) > 0
+
+    @staticmethod
+    def _nudge_count(messages: list[Any], marker: str) -> int:
+        count = 0
         for msg in messages:
             content = getattr(msg, "content", "") or ""
             if isinstance(content, str) and marker in content:
-                return True
-        return False
+                count += 1
+        return count
 
     def _budget_nudge(self, tool_rounds: int, *, final: bool = False) -> str:
         marker = "[BUDGET-NUDGE-FINAL]" if final else "[BUDGET-NUDGE-BATCH]"
@@ -802,7 +873,7 @@ class LoopBreakerMiddleware(AgentMiddleware):
 
     def _grep_empty_nudge(self) -> str:
         return (
-            "[LOOP-BREAKER] grep returned 0 matches twice. Do NOT grep again.\n"
+            "[LOOP-BREAKER-GREP] grep returned 0 matches twice. Do NOT grep again.\n"
             "Switch to one `execute` call using `python3 <<'PY' ... PY`, scan the "
             "right directory with pathlib.rglob, and write the requested final output. "
             "Do not create a helper file inside the scanned workspace."
@@ -838,7 +909,7 @@ class LoopBreakerMiddleware(AgentMiddleware):
             grep_pairs
             and all(p[0] == "grep" for p in grep_pairs)
             and all(self._grep_looks_empty(p[2]) for p in grep_pairs)
-            and not self._already_nudged(messages, "[LOOP-BREAKER]")
+            and self._nudge_count(messages, "[LOOP-BREAKER-GREP]") < 2
         ):
             return {"messages": [HumanMessage(content=self._grep_empty_nudge())]}
 
@@ -863,9 +934,10 @@ class LoopBreakerMiddleware(AgentMiddleware):
         if not (all_same_call or all_same_tool_errors or all_same_error_family):
             return None
 
-        # Avoid injecting the same nudge more than once in a run.
-        already_injected_marker = "[LOOP-BREAKER]"
-        if self._already_nudged(messages, already_injected_marker):
+        # A long task may encounter another independent loop later. Keep the
+        # intervention bounded, but do not permanently disable it after one use.
+        already_injected_marker = "[LOOP-BREAKER-ERROR]"
+        if self._nudge_count(messages, already_injected_marker) >= 2:
             return None
         tool_name = pairs[0][0]
         last_result = pairs[0][2][:300]
@@ -987,27 +1059,19 @@ _initial_workspace_files: ContextVar[frozenset[str]] = ContextVar(
 
 
 def set_workspace_path(path: Path | str | None) -> None:
-    """Store the current task workspace in the current execution context.
+    """Store workspace metadata while the task's agent graph is being built.
 
-    Benchmark runners build and invoke agents in worker threads. A process-wide
-    global lets concurrent tasks overwrite each other's workspace, so middleware
-    could inspect the wrong AGENTS.md or fixture. ContextVar keeps the public
-    runner API while isolating each worker context.
+    ``register_harness`` installs an extra-middleware factory. Deep Agents calls
+    that factory during graph construction, and each workspace-aware middleware
+    instance captures these values. The bound values then remain available when
+    a runner invokes the compiled agent in a fresh ``threading.Thread``.
     """
     workspace = Path(path) if path is not None else None
     _workspace_path.set(workspace)
     if workspace is None:
         _initial_workspace_files.set(frozenset())
         return
-    try:
-        files = frozenset(
-            item.relative_to(workspace).as_posix()
-            for item in workspace.rglob("*")
-            if item.is_file()
-        )
-    except OSError:
-        files = frozenset()
-    _initial_workspace_files.set(files)
+    _initial_workspace_files.set(_snapshot_workspace_files(workspace))
 
 
 def get_workspace_path() -> Path | None:
@@ -1039,26 +1103,37 @@ def register_harness(
         trigger = float(
             os.getenv("DEEPAGENTS_GIGACHAT_SUMMARIZATION_TRIGGER", "0.85")
         )
-    middleware: list[AgentMiddleware] = [
-        ThinkToolMiddleware(),
-        ShellSafetyMiddleware(),
-        PathNormalizerMiddleware(),
-        ContextWindowGuardMiddleware(
-            context_window=window,
-            trigger_fraction=trigger,
-        ),
-        DeterministicOutputMiddleware(),
-        SpecificationAuditMiddleware(),
-        MemoryTaskMiddleware(),
-        LoopBreakerMiddleware(),
-    ]
-    if contract:
-        middleware.append(ToolContractMiddleware(contract))
+
+    def middleware_factory() -> tuple[AgentMiddleware, ...]:
+        workspace = get_workspace_path()
+        initial_files = get_initial_workspace_files()
+        middleware: list[AgentMiddleware] = [
+            ThinkToolMiddleware(),
+            ShellSafetyMiddleware(),
+            PathNormalizerMiddleware(),
+            ContextWindowGuardMiddleware(
+                context_window=window,
+                trigger_fraction=trigger,
+            ),
+            DeterministicOutputMiddleware(
+                workspace=workspace,
+                initial_workspace_files=initial_files,
+            ),
+            SpecificationAuditMiddleware(
+                workspace=workspace,
+                initial_workspace_files=initial_files,
+            ),
+            MemoryTaskMiddleware(workspace=workspace),
+            LoopBreakerMiddleware(),
+        ]
+        if contract:
+            middleware.append(ToolContractMiddleware(contract))
+        return tuple(middleware)
 
     profile = HarnessProfile(
         base_system_prompt=f"{build_system_prompt(variant)}\n\n",
         tool_description_overrides=_tool_description_overrides(variant),
-        extra_middleware=tuple(middleware),
+        extra_middleware=middleware_factory,
     )
 
     for provider_key in ("gigachat", "giga"):
