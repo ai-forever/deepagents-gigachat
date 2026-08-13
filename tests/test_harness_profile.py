@@ -677,3 +677,89 @@ def test_loop_breaker_uses_separate_bounded_markers() -> None:
     assert middleware.before_model(
         {"messages": capped_messages}, runtime=None  # type: ignore[arg-type]
     ) is None
+
+
+def _tool_rounds(count: int, *, start: int = 0) -> list[Any]:
+    """`count` model turns, each with a distinct tool call and its result."""
+    messages: list[Any] = []
+    for index in range(start, start + count):
+        call_id = f"call_{index}"
+        messages.extend(
+            [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "read_file",
+                            "args": {"file_path": f"src/mod_{index}.py"},
+                            "id": call_id,
+                        }
+                    ],
+                ),
+                ToolMessage(content="ok", tool_call_id=call_id, name="read_file"),
+            ]
+        )
+    return messages
+
+
+def test_budget_nudge_is_reinjected_on_every_turn_over_the_threshold() -> None:
+    """The budget nudge is pressure, not an announcement.
+
+    Injecting it once lets it sink under later turns, and a long trajectory
+    stops being pushed to finish: measured at 31 lost long multi-file tasks on
+    GigaChat-3.5 and -10.7 pp mean on GigaChat-3.1-10B.
+    """
+    middleware = LoopBreakerMiddleware()
+    messages: list[Any] = [HumanMessage(content="task"), *_tool_rounds(12)]
+
+    first = middleware.before_model(
+        {"messages": messages}, runtime=None  # type: ignore[arg-type]
+    )
+    assert first is not None
+    assert "[BUDGET-NUDGE-BATCH]" in first["messages"][0].content
+
+    # The agent answered the nudge with another tool round and is still over
+    # budget: the order has to arrive again.
+    messages = [*messages, first["messages"][0], *_tool_rounds(1, start=12)]
+    second = middleware.before_model(
+        {"messages": messages}, runtime=None  # type: ignore[arg-type]
+    )
+    assert second is not None
+    assert "[BUDGET-NUDGE-BATCH]" in second["messages"][0].content
+
+
+def test_budget_nudge_is_not_repeated_before_the_model_answers() -> None:
+    middleware = LoopBreakerMiddleware()
+    messages: list[Any] = [HumanMessage(content="task"), *_tool_rounds(12)]
+
+    result = middleware.before_model(
+        {"messages": messages}, runtime=None  # type: ignore[arg-type]
+    )
+    assert result is not None
+
+    assert middleware.before_model(
+        {"messages": [*messages, result["messages"][0]]},
+        runtime=None,  # type: ignore[arg-type]
+    ) is None
+
+
+def test_final_budget_order_also_repeats_and_outranks_the_batch_nudge() -> None:
+    middleware = LoopBreakerMiddleware()
+    messages: list[Any] = [
+        HumanMessage(content="task"),
+        HumanMessage(content="[BUDGET-NUDGE-BATCH] switch strategy"),
+        *_tool_rounds(24),
+    ]
+
+    first = middleware.before_model(
+        {"messages": messages}, runtime=None  # type: ignore[arg-type]
+    )
+    assert first is not None
+    assert "[BUDGET-NUDGE-FINAL]" in first["messages"][0].content
+
+    messages = [*messages, first["messages"][0], *_tool_rounds(1, start=24)]
+    second = middleware.before_model(
+        {"messages": messages}, runtime=None  # type: ignore[arg-type]
+    )
+    assert second is not None
+    assert "[BUDGET-NUDGE-FINAL]" in second["messages"][0].content

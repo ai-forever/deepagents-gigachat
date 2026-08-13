@@ -855,6 +855,28 @@ class LoopBreakerMiddleware(AgentMiddleware):
                 count += 1
         return count
 
+    @staticmethod
+    def _nudged_since_last_turn(messages: list[Any], marker: str) -> bool:
+        """True only if the marker is still in the block after the last AIMessage.
+
+        Used for the budget nudges, which must keep applying pressure instead of
+        firing once. Counting markers over the whole history makes the order
+        arrive a single time and then sink under later turns, and a long
+        trajectory stops being pushed to finish at all: measured on
+        harness-bench-fast v0.16.0, one-shot budget nudges cost 31 long
+        multi-file tasks on GigaChat-3.5 and -10.7 pp mean on GigaChat-3.1-10B,
+        where the share of attempts exhausting the graph budget went 2.7% ->
+        23.7%. Re-injection stops on its own: it is gated on `tool_rounds`, and
+        an agent that follows the order stops making tool calls.
+        """
+        for msg in reversed(messages):
+            content = getattr(msg, "content", "") or ""
+            if isinstance(content, str) and marker in content:
+                return True
+            if isinstance(msg, AIMessage):
+                break
+        return False
+
     def _budget_nudge(self, tool_rounds: int, *, final: bool = False) -> str:
         marker = "[BUDGET-NUDGE-FINAL]" if final else "[BUDGET-NUDGE-BATCH]"
         if final:
@@ -886,11 +908,13 @@ class LoopBreakerMiddleware(AgentMiddleware):
 
         tool_rounds = self._count_tool_rounds(messages)
 
-        # Staged call-count guard. Each marker is injected at most once. The
-        # previous implementation only searched back to the latest AIMessage,
-        # so it re-injected the same nudge on every subsequent model turn and
-        # could itself keep a task in a loop.
-        if tool_rounds >= 24 and not self._already_nudged(
+        # Staged call-count guard. Both budget nudges are re-injected while
+        # their condition holds: they are the safety valve for long
+        # trajectories, and a one-shot order sinks under later turns (see
+        # `_nudged_since_last_turn`). The loop nudges below stay capped —
+        # they fire on a repeated call shape, which the model can and does
+        # abandon, so repeating them adds nothing.
+        if tool_rounds >= 24 and not self._nudged_since_last_turn(
             messages, "[BUDGET-NUDGE-FINAL]"
         ):
             return {
@@ -898,7 +922,7 @@ class LoopBreakerMiddleware(AgentMiddleware):
                     HumanMessage(content=self._budget_nudge(tool_rounds, final=True))
                 ]
             }
-        if tool_rounds >= 12 and not self._already_nudged(
+        if tool_rounds >= 12 and not self._nudged_since_last_turn(
             messages, "[BUDGET-NUDGE-BATCH]"
         ):
             return {"messages": [HumanMessage(content=self._budget_nudge(tool_rounds))]}
