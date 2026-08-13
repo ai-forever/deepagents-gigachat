@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
@@ -13,12 +14,68 @@ from deepagents import (
     register_harness_profile,
 )
 from langchain.agents.middleware.types import AgentMiddleware
+from langchain_core.exceptions import ContextOverflowError
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages.utils import count_tokens_approximately
 from langchain_core.tools import tool
 from langgraph.runtime import Runtime
 from pydantic import Field
 
 from deepagents_gigachat.prompts import build_system_prompt
+
+GIGACHAT_CONTEXT_WINDOWS: dict[str, int] = {
+    # Public chat-model IDs reported by the API. Context limit measured on
+    # 2026-08-03; deployments may differ, so an explicit model profile,
+    # register_harness(context_window=...), or env override takes precedence.
+    "GigaChat": 261_120,
+    "GigaChat-Pro": 261_120,
+    "GigaChat-Max": 261_120,
+    "GigaChat-2": 261_120,
+    "GigaChat-2-Pro": 261_120,
+    "GigaChat-2-Max": 261_120,
+    "GigaChat-2-Reasoning": 261_120,
+    "GigaChat-3-Lightning": 261_120,
+    "GigaChat-3-Pro": 261_120,
+    "GigaChat-3-Ultra": 261_120,
+}
+_NORMALIZED_CONTEXT_WINDOWS = {
+    model_name.casefold(): context_window
+    for model_name, context_window in GIGACHAT_CONTEXT_WINDOWS.items()
+}
+_IGNORED_WORKSPACE_DIRS = {
+    ".git",
+    ".hg",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pycache__",
+    "node_modules",
+    "venv",
+}
+_MAX_WORKSPACE_FILES = 20_000
+
+
+def _snapshot_workspace_files(workspace: Path) -> frozenset[str]:
+    """Capture a bounded input-file snapshot without scanning vendor metadata."""
+    files: set[str] = set()
+    try:
+        for root, dirs, names in os.walk(workspace):
+            dirs[:] = [
+                name
+                for name in dirs
+                if name not in _IGNORED_WORKSPACE_DIRS
+            ]
+            root_path = Path(root)
+            for name in names:
+                files.add((root_path / name).relative_to(workspace).as_posix())
+                if len(files) >= _MAX_WORKSPACE_FILES:
+                    return frozenset(files)
+    except OSError:
+        pass
+    return frozenset(files)
 
 
 @tool("think")
@@ -169,6 +226,419 @@ class PathNormalizerMiddleware(AgentMiddleware):
         return result
 
 
+class ContextWindowGuardMiddleware(AgentMiddleware):
+    """Trigger Deep Agents compaction before an unprofiled GigaChat overflows.
+
+    Deep Agents derives fractional summarization thresholds from
+    ``model.profile["max_input_tokens"]``.  Current ``langchain-gigachat``
+    models leave that profile unset, so the stock middleware falls back to an
+    absolute 170k-token trigger, which is not tied to the active GigaChat
+    deployment's context window.
+
+    This middleware runs inside the stock Deep Agents summarizer.  When an
+    unprofiled request for a known model reaches the configured safe fraction,
+    it raises the standard ``ContextOverflowError``. Model context windows come
+    from ``GIGACHAT_CONTEXT_WINDOWS`` unless explicitly overridden. Unknown
+    models only use provider-error translation. The outer summarizer handles
+    either signal through its normal history-offload, summary, and retry path.
+    """
+
+    name = "ContextWindowGuardMiddleware"
+    _CONTEXT_ERROR_CLASS_NAMES = {
+        "RequestEntityTooLargeError",
+    }
+    _CONTEXT_ERROR_TEXT = (
+        "context_too_long",
+        "context too long",
+        "context length",
+        "context limit",
+        "context window",
+        "maximum allowed context",
+        "maximum context",
+        "payload too large",
+        "too many tokens",
+    )
+
+    def __init__(
+        self,
+        *,
+        context_window: int | None = None,
+        trigger_fraction: float = 0.85,
+        minimum_messages: int = 7,
+    ) -> None:
+        if context_window is not None and context_window <= 0:
+            msg = "context_window must be a positive integer"
+            raise ValueError(msg)
+        if not 0 < trigger_fraction < 1:
+            msg = "trigger_fraction must be between 0 and 1"
+            raise ValueError(msg)
+        if minimum_messages < 2:
+            msg = "minimum_messages must be at least 2"
+            raise ValueError(msg)
+        self.context_window = context_window
+        self.trigger_fraction = trigger_fraction
+        self.minimum_messages = minimum_messages
+        self.trigger_tokens = (
+            int(context_window * trigger_fraction)
+            if context_window is not None
+            else None
+        )
+
+    @staticmethod
+    def _model_has_context_profile(model: Any) -> bool:
+        profile = getattr(model, "profile", None)
+        return (
+            isinstance(profile, dict)
+            and isinstance(profile.get("max_input_tokens"), int)
+            and profile["max_input_tokens"] > 0
+        )
+
+    @staticmethod
+    def _model_identifier(model: Any) -> str:
+        identifier = (
+            getattr(model, "model", None)
+            or getattr(model, "model_name", None)
+            or "GigaChat"
+        )
+        normalized = str(identifier).strip()
+        parts = normalized.split(":")
+        if len(parts) > 1 and parts[0].casefold() in {"giga", "gigachat"}:
+            normalized = parts[1]
+        else:
+            normalized = parts[0]
+        if normalized.casefold().endswith("-preview"):
+            normalized = normalized[: -len("-preview")]
+        return normalized
+
+    def context_window_for_model(self, model: Any) -> int | None:
+        """Resolve explicit override first, then the known-model table."""
+        if self.context_window is not None:
+            return self.context_window
+        identifier = self._model_identifier(model)
+        return _NORMALIZED_CONTEXT_WINDOWS.get(identifier.casefold())
+
+    @classmethod
+    def _is_provider_context_overflow(cls, exc: Exception) -> bool:
+        if type(exc).__name__ in cls._CONTEXT_ERROR_CLASS_NAMES:
+            return True
+        if type(exc).__name__ not in {"BadRequestError", "UnprocessableEntityError"}:
+            return False
+        text = str(exc).lower()
+        return any(marker in text for marker in cls._CONTEXT_ERROR_TEXT)
+
+    @staticmethod
+    def _request_tokens(request: Any) -> int:
+        messages = list(getattr(request, "messages", []) or [])
+        system_message = getattr(request, "system_message", None)
+        if system_message is not None:
+            messages.insert(0, system_message)
+        return count_tokens_approximately(
+            messages,
+            tools=getattr(request, "tools", None),
+            use_usage_metadata_scaling=True,
+        )
+
+    @staticmethod
+    def _is_summarization_retry(request: Any) -> bool:
+        """Return whether Deep Agents just compacted and is retrying the model.
+
+        In Deep Agents 0.6.10 the stock summarizer calls the inner handler once more with a new
+        synthetic summary before its state update is committed.  Raising a
+        second overflow from that retry would escape the outer catch block.
+        """
+        messages = list(getattr(request, "messages", []) or [])
+        if not messages:
+            return False
+        first = messages[0]
+        additional_kwargs = getattr(first, "additional_kwargs", {}) or {}
+        if additional_kwargs.get("lc_source") != "summarization":
+            return False
+        state = getattr(request, "state", {}) or {}
+        event = state.get("_summarization_event") if isinstance(state, dict) else None
+        if not isinstance(event, dict):
+            return True
+        previous_summary = event.get("summary_message")
+        return getattr(previous_summary, "content", None) != getattr(
+            first, "content", None
+        )
+
+    def _raise_if_near_limit(self, request: Any) -> None:
+        messages = list(getattr(request, "messages", []) or [])
+        if (
+            self._model_has_context_profile(getattr(request, "model", None))
+            or self._is_summarization_retry(request)
+            or len(messages) < self.minimum_messages
+        ):
+            return
+        context_window = self.context_window_for_model(
+            getattr(request, "model", None)
+        )
+        if context_window is None:
+            return
+        trigger_tokens = int(context_window * self.trigger_fraction)
+        total_tokens = self._request_tokens(request)
+        if total_tokens < trigger_tokens:
+            return
+        raise ContextOverflowError(
+            "GigaChat context guard requested proactive compaction at "
+            f"{total_tokens} estimated tokens "
+            f"({self.trigger_fraction:.0%} of {context_window})."
+        )
+
+    def wrap_model_call(self, request: Any, handler: Any) -> Any:
+        self._raise_if_near_limit(request)
+        try:
+            return handler(request)
+        except Exception as exc:
+            if not self._is_provider_context_overflow(exc):
+                raise
+            raise ContextOverflowError(
+                "GigaChat rejected the request because its context window was exceeded."
+            ) from exc
+
+    async def awrap_model_call(self, request: Any, handler: Any) -> Any:
+        self._raise_if_near_limit(request)
+        try:
+            return await handler(request)
+        except Exception as exc:
+            if not self._is_provider_context_overflow(exc):
+                raise
+            raise ContextOverflowError(
+                "GigaChat rejected the request because its context window was exceeded."
+            ) from exc
+
+
+class DeterministicOutputMiddleware(AgentMiddleware):
+    """Prevent ungrounded direct writes for derived data outputs.
+
+    The guard is deliberately structural rather than task-specific. It only
+    applies when a new scalar/structured output is being written in a workspace
+    that already contains source files, and no deterministic computation tool
+    has run. Source-code deliverables and edits to existing files are untouched.
+    """
+
+    name = "DeterministicOutputMiddleware"
+    _DECISION_MARKER = "[DETERMINISTIC-NEXT-STEP]"
+    _OBSERVATION_TOOLS = {"glob", "grep", "ls", "read_file"}
+    _STRUCTURED_SUFFIXES = {".csv", ".json", ".jsonl", ".tsv"}
+    _SOURCE_SUFFIXES = {
+        ".csv",
+        ".db",
+        ".json",
+        ".jsonl",
+        ".log",
+        ".sqlite",
+        ".tsv",
+        ".txt",
+        ".xlsx",
+        ".xml",
+    }
+    _CODE_SUFFIXES = {".awk", ".js", ".pl", ".py", ".rb", ".sh", ".sql", ".ts"}
+    _DETERMINISTIC_COMMAND = re.compile(
+        r"\b(?:awk|jq|python|python3|sed|sha256sum|sqlite3|wc)\b"
+    )
+
+    def __init__(
+        self,
+        *,
+        workspace: Path | None = None,
+        initial_workspace_files: frozenset[str] | None = None,
+    ) -> None:
+        self.workspace = workspace if workspace is not None else get_workspace_path()
+        self.initial_workspace_files = (
+            initial_workspace_files
+            if initial_workspace_files is not None
+            else get_initial_workspace_files()
+        )
+
+    def _is_skill_workspace(self) -> bool:
+        workspace = self.workspace
+        return (
+            workspace is not None
+            and (workspace / ".agents" / "skills").is_dir()
+        )
+
+    @staticmethod
+    def _tool_calls(messages: list[Any]) -> list[dict[str, Any]]:
+        return [
+            call
+            for message in messages
+            if isinstance(message, AIMessage)
+            for call in (getattr(message, "tool_calls", None) or [])
+        ]
+
+    @classmethod
+    def _has_deterministic_call(cls, messages: list[Any]) -> bool:
+        for call in cls._tool_calls(messages):
+            if call.get("name") == "execute":
+                command = str((call.get("args") or {}).get("command", ""))
+                if cls._DETERMINISTIC_COMMAND.search(command):
+                    return True
+        return False
+
+    def _requires_computation(self, workspace: Path, path: str, content: str) -> bool:
+        target = workspace / path.lstrip("/")
+        if target.exists() or target.suffix.lower() in self._CODE_SUFFIXES:
+            return False
+        if not self.initial_workspace_files:
+            return False
+        if re.fullmatch(r"\s*[-+]?\d+(?:\.\d+)?\s*", content):
+            return True
+        if target.suffix.lower() not in self._STRUCTURED_SUFFIXES:
+            return False
+        return any(
+            Path(item).suffix.lower() in self._SOURCE_SUFFIXES
+            and item != path.lstrip("/")
+            for item in self.initial_workspace_files
+        )
+
+    def _blocked_result(self, request: Any) -> ToolMessage | None:
+        if self._is_skill_workspace():
+            return None
+        tool_call = getattr(request, "tool_call", {}) or {}
+        if tool_call.get("name") != "write_file":
+            return None
+        args = tool_call.get("args", {}) or {}
+        path = str(args.get("file_path") or args.get("path") or "")
+        content = str(args.get("content") or "")
+        workspace = self.workspace
+        state = getattr(request, "state", {}) or {}
+        messages = state.get("messages", []) if isinstance(state, dict) else []
+        if (
+            not path
+            or workspace is None
+            or self._has_deterministic_call(messages)
+            or not self._requires_computation(workspace, path, content)
+        ):
+            return None
+        return ToolMessage(
+            content=(
+                "[DETERMINISTIC-OUTPUT] Directly writing a guessed/mentally computed "
+                "derived value is blocked. Use `execute` with a single-quoted Python 3 "
+                "heredoc (`python3 <<'PY' ... PY`) to read the actual workspace inputs and "
+                "create the requested output deterministically. Do not create a helper "
+                "script inside the workspace because it may contaminate recursive counts, "
+                "manifests, or searches."
+            ),
+            tool_call_id=tool_call.get("id", ""),
+            name="write_file",
+        )
+
+    def before_model(self, state: Any, runtime: Runtime[Any]) -> dict[str, Any] | None:  # noqa: ARG002
+        if self.workspace is None or self._is_skill_workspace():
+            return None
+        messages = state.get("messages") if isinstance(state, dict) else getattr(state, "messages", None)
+        if not messages or LoopBreakerMiddleware._already_nudged(
+            messages, self._DECISION_MARKER
+        ):
+            return None
+        calls = self._tool_calls(messages)
+        if not calls or self._has_deterministic_call(messages):
+            return None
+        last_call = calls[-1]
+        if last_call.get("name") not in self._OBSERVATION_TOOLS:
+            return None
+        return {
+            "messages": [
+                HumanMessage(
+                    content=(
+                        f"{self._DECISION_MARKER} Decide how the inspected content affects "
+                        "the requested result. If the result requires counting, filtering, "
+                        "parsing, aggregation, hashing, ordering, or another derived "
+                        "transformation, your NEXT tool must be `execute` with a single-quoted "
+                        "Python 3 heredoc (`python3 <<'PY' ... PY`); have that code read the "
+                        "real workspace files and write the final output. Do not compute or "
+                        "transcribe derived values mentally. For a multi-rule transformation "
+                        "or code, first use `think` to enumerate the exact output fields and "
+                        "types, ordering/tie-break rules, missing-value conventions, and every "
+                        "edge-case branch from the user's request. If the task is only a "
+                        "literal surgical text edit, proceed with `edit_file` instead."
+                    )
+                )
+            ]
+        }
+
+    def wrap_tool_call(self, request: Any, handler: Any) -> ToolMessage:
+        return self._blocked_result(request) or handler(request)
+
+    async def awrap_tool_call(self, request: Any, handler: Any) -> ToolMessage:
+        return self._blocked_result(request) or await handler(request)
+
+
+class SpecificationAuditMiddleware(AgentMiddleware):
+    """Audit newly generated outputs against the user's explicit contract.
+
+    The middleware records the files present when the runner selects a workspace.
+    When the agent later reads a newly created file, it gets one concise audit
+    pass focused on schema fidelity. This is task-agnostic: no benchmark names,
+    filenames, expected values, or domain rules are encoded here.
+    """
+
+    name = "SpecificationAuditMiddleware"
+    _MARKER = "[SPECIFICATION-AUDIT]"
+
+    def __init__(
+        self,
+        *,
+        workspace: Path | None = None,
+        initial_workspace_files: frozenset[str] | None = None,
+    ) -> None:
+        self.workspace = workspace if workspace is not None else get_workspace_path()
+        self.initial_workspace_files = (
+            initial_workspace_files
+            if initial_workspace_files is not None
+            else get_initial_workspace_files()
+        )
+
+    @staticmethod
+    def _last_tool_call(messages: list[Any]) -> dict[str, Any] | None:
+        for message in reversed(messages):
+            if not isinstance(message, AIMessage):
+                continue
+            calls = getattr(message, "tool_calls", None) or []
+            if calls:
+                return calls[-1]
+        return None
+
+    @staticmethod
+    def _read_path(call: dict[str, Any]) -> str:
+        args = call.get("args", {}) or {}
+        return str(args.get("file_path") or args.get("path") or "").lstrip("/")
+
+    def before_model(self, state: Any, runtime: Runtime[Any]) -> dict[str, Any] | None:  # noqa: ARG002
+        if self.workspace is None:
+            return None
+        messages = state.get("messages") if isinstance(state, dict) else getattr(state, "messages", None)
+        if not messages or LoopBreakerMiddleware._already_nudged(messages, self._MARKER):
+            return None
+        call = self._last_tool_call(messages)
+        if not call or call.get("name") != "read_file":
+            return None
+        path = self._read_path(call)
+        if not path or path in self.initial_workspace_files:
+            return None
+        return {
+            "messages": [
+                HumanMessage(
+                    content=(
+                        f"{self._MARKER} You just inspected the generated output `{path}`. "
+                        "Before finishing, compare it field-by-field with the user's original "
+                        "contract; do not merely declare it correct.\n"
+                        "- Exact filename, field/column/key names, nesting, and no extra fields.\n"
+                        "- Exact value types: number vs string vs null vs empty string vs list/object.\n"
+                        "- Required ordering, stable input order, tie-breakers, and deduplication rules.\n"
+                        "- Every named status/branch and all positive, negative, missing, retry, "
+                        "and boundary cases in the request.\n"
+                        "- For code, execute focused examples covering every stated branch and "
+                        "fix the implementation if any result differs.\n"
+                        "If any requirement is not visibly satisfied, fix the output now and "
+                        "read it once more. Otherwise finish."
+                    )
+                )
+            ]
+        }
+
+
 class MemoryTaskMiddleware(AgentMiddleware):
     """Nudge the agent on memory-task workflows when AGENTS.md is present."""
 
@@ -176,9 +646,11 @@ class MemoryTaskMiddleware(AgentMiddleware):
     _START_MARKER = "[MEMORY-TASK]"
     _SAVE_MARKER = "[MEMORY-SAVE]"
 
-    @staticmethod
-    def _is_memory_workspace() -> bool:
-        wp = get_workspace_path()
+    def __init__(self, *, workspace: Path | None = None) -> None:
+        self.workspace = workspace if workspace is not None else get_workspace_path()
+
+    def _is_memory_workspace(self) -> bool:
+        wp = self.workspace
         return wp is not None and (wp / "AGENTS.md").exists()
 
     @staticmethod
@@ -260,8 +732,9 @@ class LoopBreakerMiddleware(AgentMiddleware):
 
     This middleware watches `messages` in `before_model` and, when it sees
     the same `(tool_name, args)` for 3 consecutive AIMessages, appends a
-    one-shot SystemMessage with a forceful instruction to STOP and switch
-    strategy. The model usually breaks out of the loop on the next turn.
+    bounded HumanMessage nudges with a forceful instruction to STOP and switch
+    strategy. Separate markers keep a failed-tool loop from suppressing a later
+    empty-grep loop in the same run.
     """
 
     name = "LoopBreakerMiddleware"
@@ -371,29 +844,39 @@ class LoopBreakerMiddleware(AgentMiddleware):
 
     @staticmethod
     def _already_nudged(messages: list[Any], marker: str) -> bool:
-        for msg in reversed(messages):
+        return LoopBreakerMiddleware._nudge_count(messages, marker) > 0
+
+    @staticmethod
+    def _nudge_count(messages: list[Any], marker: str) -> int:
+        count = 0
+        for msg in messages:
             content = getattr(msg, "content", "") or ""
             if isinstance(content, str) and marker in content:
-                return True
-            if isinstance(msg, AIMessage):
-                break
-        return False
+                count += 1
+        return count
 
-    def _budget_nudge(self, tool_rounds: int) -> str:
+    def _budget_nudge(self, tool_rounds: int, *, final: bool = False) -> str:
+        marker = "[BUDGET-NUDGE-FINAL]" if final else "[BUDGET-NUDGE-BATCH]"
+        if final:
+            return (
+                f"{marker} You have made {tool_rounds} tool calls. Complete the remaining "
+                "deliverables now, run one focused verification, fix any reported failure, "
+                "and finish. Do not restart exploration or repeat a failed call shape."
+            )
         return (
-            "[BUDGET-NUDGE] You have made "
-            f"{tool_rounds} tool calls. STOP exploring and finish the task NOW.\n"
-            "- Simple count task? write_file run.py + execute python run.py → done.\n"
-            "- Required output file not written yet? write_file it immediately.\n"
-            "- Do NOT make more read/grep calls. Write your best answer and finish."
+            f"{marker} You have made {tool_rounds} tool calls. Preserve completed work, "
+            "but switch to a bounded batch strategy now.\n"
+            "- Use one script/command for repeated edits, parsing, or ordered operations.\n"
+            "- Do not retry the same tool/error shape.\n"
+            "- Then verify the requested outputs once and finish."
         )
 
     def _grep_empty_nudge(self) -> str:
         return (
-            "[LOOP-BREAKER] grep returned 0 matches twice. Do NOT grep again.\n"
-            "Switch to: write_file run.py using pathlib.Path('tests').rglob('*.py') "
-            "(or the right directory), count occurrences in a loop, "
-            "open('count.txt','w').write(str(total)), then execute python run.py."
+            "[LOOP-BREAKER-GREP] grep returned 0 matches twice. Do NOT grep again.\n"
+            "Switch to one `execute` call using `python3 <<'PY' ... PY`, scan the "
+            "right directory with pathlib.rglob, and write the requested final output. "
+            "Do not create a helper file inside the scanned workspace."
         )
 
     def before_model(self, state: Any, runtime: Runtime[Any]) -> dict[str, Any] | None:  # noqa: ARG002
@@ -403,8 +886,21 @@ class LoopBreakerMiddleware(AgentMiddleware):
 
         tool_rounds = self._count_tool_rounds(messages)
 
-        # High call-count guard: force finish on simple-looking tasks.
-        if tool_rounds >= 12 and not self._already_nudged(messages, "[BUDGET-NUDGE]"):
+        # Staged call-count guard. Each marker is injected at most once. The
+        # previous implementation only searched back to the latest AIMessage,
+        # so it re-injected the same nudge on every subsequent model turn and
+        # could itself keep a task in a loop.
+        if tool_rounds >= 24 and not self._already_nudged(
+            messages, "[BUDGET-NUDGE-FINAL]"
+        ):
+            return {
+                "messages": [
+                    HumanMessage(content=self._budget_nudge(tool_rounds, final=True))
+                ]
+            }
+        if tool_rounds >= 12 and not self._already_nudged(
+            messages, "[BUDGET-NUDGE-BATCH]"
+        ):
             return {"messages": [HumanMessage(content=self._budget_nudge(tool_rounds))]}
 
         # Grep-empty streak: common on count tasks that return 0 forever.
@@ -413,7 +909,7 @@ class LoopBreakerMiddleware(AgentMiddleware):
             grep_pairs
             and all(p[0] == "grep" for p in grep_pairs)
             and all(self._grep_looks_empty(p[2]) for p in grep_pairs)
-            and not self._already_nudged(messages, "[LOOP-BREAKER]")
+            and self._nudge_count(messages, "[LOOP-BREAKER-GREP]") < 2
         ):
             return {"messages": [HumanMessage(content=self._grep_empty_nudge())]}
 
@@ -438,14 +934,11 @@ class LoopBreakerMiddleware(AgentMiddleware):
         if not (all_same_call or all_same_tool_errors or all_same_error_family):
             return None
 
-        # Avoid injecting the same nudge twice in a row.
-        already_injected_marker = "[LOOP-BREAKER]"
-        for m in reversed(messages):
-            content = getattr(m, "content", "") or ""
-            if isinstance(content, str) and already_injected_marker in content:
-                return None
-            if isinstance(m, AIMessage):
-                break
+        # A long task may encounter another independent loop later. Keep the
+        # intervention bounded, but do not permanently disable it after one use.
+        already_injected_marker = "[LOOP-BREAKER-ERROR]"
+        if self._nudge_count(messages, already_injected_marker) >= 2:
+            return None
         tool_name = pairs[0][0]
         last_result = pairs[0][2][:300]
         nudge = (
@@ -456,12 +949,12 @@ class LoopBreakerMiddleware(AgentMiddleware):
             f"`read_file`: you are leaking the leading '<line_no>\\t' prefix. "
             f"Strip the spaces + number + tab before reusing the text. "
             f"`     3\\tHello` in display means the file contains just `Hello`.\n"
-            f"- If `python -c \"...\"` keeps giving SyntaxError: switch to "
-            f"`write_file run.py \"<multi-line code>\"`, then `execute python run.py`.\n"
+            f"- If `python3 -c \"...\"` keeps giving SyntaxError: switch to one "
+            f"`execute` call with a single-quoted Python 3 heredoc.\n"
             f"- If a filesystem tool path failed, use a relative path like "
             f"`foo.py` or `src/foo.py`. Do NOT use absolute paths.\n"
             f"- If `grep`/`glob` returns nothing useful: for count tasks, write "
-            f"`run.py` with pathlib.rglob — do NOT keep grepping.\n"
+            f"a Python 3 heredoc with pathlib.rglob — do NOT keep grepping.\n"
             f"- If `write_file` says 'already exists': the right tool is "
             f"`edit_file`, NOT another `write_file` with a new name.\n"
             f"- If a CLI/runtime tool says 'invalid choice' or 'unrecognized "
@@ -536,8 +1029,9 @@ def _tool_description_overrides(profile_variant: str) -> dict[str, str]:
             "the search: path='tests' for tests/*.py, path='src' for src/*.py, "
             "path='.' for the whole workspace. To search several alternatives "
             "run grep several times. The result lists matching lines — read "
-            "it directly. If 0 matches, switch to a Python run.py script with "
-            "pathlib.rglob instead of retrying grep. Returned paths start with "
+            "it directly. If 0 matches, use `execute` with a single-quoted "
+            "Python 3 heredoc and pathlib.rglob instead of retrying grep. "
+            "Returned paths start with "
             "'/' — strip it before writing to output files."
         ),
         "execute": (
@@ -554,38 +1048,92 @@ def _tool_description_overrides(profile_variant: str) -> dict[str, str]:
     }
 
 
-_workspace_path: Path | None = None
+_workspace_path: ContextVar[Path | None] = ContextVar(
+    "deepagents_gigachat_workspace_path",
+    default=None,
+)
+_initial_workspace_files: ContextVar[frozenset[str]] = ContextVar(
+    "deepagents_gigachat_initial_workspace_files",
+    default=frozenset(),
+)
 
 
-def set_workspace_path(path: Path | str) -> None:
-    """Store the current task workspace so middleware can locate workspace files."""
-    global _workspace_path  # noqa: PLW0603
-    _workspace_path = Path(path) if path is not None else None
+def set_workspace_path(path: Path | str | None) -> None:
+    """Store workspace metadata while the task's agent graph is being built.
+
+    ``register_harness`` installs an extra-middleware factory. Deep Agents calls
+    that factory during graph construction, and each workspace-aware middleware
+    instance captures these values. The bound values then remain available when
+    a runner invokes the compiled agent in a fresh ``threading.Thread``.
+    """
+    workspace = Path(path) if path is not None else None
+    _workspace_path.set(workspace)
+    if workspace is None:
+        _initial_workspace_files.set(frozenset())
+        return
+    _initial_workspace_files.set(_snapshot_workspace_files(workspace))
 
 
 def get_workspace_path() -> Path | None:
     """Return the workspace path set by the runner, if any."""
-    return _workspace_path
+    return _workspace_path.get()
 
 
-def register_harness(profile_variant: str | None = None, tool_contract: str | None = None) -> None:
+def get_initial_workspace_files() -> frozenset[str]:
+    """Return workspace-relative files captured when the task was initialized."""
+    return _initial_workspace_files.get()
+
+
+def register_harness(
+    profile_variant: str | None = None,
+    tool_contract: str | None = None,
+    *,
+    context_window: int | None = None,
+    summarization_trigger: float | None = None,
+) -> None:
     """Register the GigaChat HarnessProfile under GigaChat provider keys."""
     variant = (profile_variant or os.getenv("DEEPAGENTS_GIGACHAT_PROFILE") or "native_fs").strip().lower().replace("-", "_")
     contract = tool_contract or os.getenv("DEEPAGENTS_GIGACHAT_TOOL_CONTRACT")
-    middleware: list[AgentMiddleware] = [
-        ThinkToolMiddleware(),
-        ShellSafetyMiddleware(),
-        PathNormalizerMiddleware(),
-        MemoryTaskMiddleware(),
-        LoopBreakerMiddleware(),
-    ]
-    if contract:
-        middleware.append(ToolContractMiddleware(contract))
+    window = context_window
+    if window is None:
+        configured_window = os.getenv("DEEPAGENTS_GIGACHAT_CONTEXT_WINDOW")
+        window = int(configured_window) if configured_window else None
+    trigger = summarization_trigger
+    if trigger is None:
+        trigger = float(
+            os.getenv("DEEPAGENTS_GIGACHAT_SUMMARIZATION_TRIGGER", "0.85")
+        )
+
+    def middleware_factory() -> tuple[AgentMiddleware, ...]:
+        workspace = get_workspace_path()
+        initial_files = get_initial_workspace_files()
+        middleware: list[AgentMiddleware] = [
+            ThinkToolMiddleware(),
+            ShellSafetyMiddleware(),
+            PathNormalizerMiddleware(),
+            ContextWindowGuardMiddleware(
+                context_window=window,
+                trigger_fraction=trigger,
+            ),
+            DeterministicOutputMiddleware(
+                workspace=workspace,
+                initial_workspace_files=initial_files,
+            ),
+            SpecificationAuditMiddleware(
+                workspace=workspace,
+                initial_workspace_files=initial_files,
+            ),
+            MemoryTaskMiddleware(workspace=workspace),
+            LoopBreakerMiddleware(),
+        ]
+        if contract:
+            middleware.append(ToolContractMiddleware(contract))
+        return tuple(middleware)
 
     profile = HarnessProfile(
         base_system_prompt=f"{build_system_prompt(variant)}\n\n",
         tool_description_overrides=_tool_description_overrides(variant),
-        extra_middleware=tuple(middleware),
+        extra_middleware=middleware_factory,
     )
 
     for provider_key in ("gigachat", "giga"):
@@ -593,5 +1141,7 @@ def register_harness(profile_variant: str | None = None, tool_contract: str | No
     print(
         "[deepagents-gigachat] Harness profile loaded "
         f"(providers=gigachat,giga; variant={variant}; "
+        f"context_window={window if window is not None else 'model-map'}; "
+        f"summarization_trigger={trigger:.0%}; "
         f"tool_contract={'on' if bool(contract) else 'off'})"
     )

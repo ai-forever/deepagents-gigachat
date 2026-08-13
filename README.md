@@ -6,7 +6,7 @@ A [`HarnessProfile`](https://docs.langchain.com/oss/python/deepagents/profiles#h
 for [`deepagents`](https://github.com/langchain-ai/deepagents) tuned for
 [GigaChat](https://giga.chat/) models. On the
 [`harness-bench-fast`](https://github.com/ai-forever/harness-bench-fast)
-313-task agent benchmark (v0.9.0) the profile reaches **269 / 313 (85.9 %)**
+371-task agent benchmark (v0.14.0) the profile reaches **331 / 371 (89.2 %)**
 with `GigaChat-3-Ultra` — see the [Benchmark](#benchmark) section for
 methodology and historical results.
 
@@ -59,6 +59,10 @@ GIGACHAT_BASE_URL="https://gigachat.sberdevices.ru/v1"
 GIGACHAT_MODEL="GigaChat-3-Ultra"
 GIGACHAT_VERIFY_SSL_CERTS=False
 GIGACHAT_PROFANITY_CHECK=False
+
+# Optional override for the built-in model context-window table.
+DEEPAGENTS_GIGACHAT_CONTEXT_WINDOW=261120
+DEEPAGENTS_GIGACHAT_SUMMARIZATION_TRIGGER=0.85
 ```
 
 ## Use With `deepagents`
@@ -123,7 +127,10 @@ from langchain_gigachat import GigaChat
 
 backend = LocalShellBackend(root_dir=".", virtual_mode=True)
 agent = create_deep_agent(
-    model=GigaChat(model="GigaChat-3-Ultra"),
+    model=GigaChat(
+        model="GigaChat-3-Ultra",
+        profile={"max_input_tokens": 261_120},
+    ),
     backend=backend,
 )
 ```
@@ -131,6 +138,73 @@ agent = create_deep_agent(
 If you run with `virtual_mode=False`, filesystem tool paths follow the real host
 filesystem instead; the relative-path prompts in this profile will not match
 that mode.
+
+### Context window and automatic summarization
+
+`deepagents` includes automatic conversation summarization. Before each model
+call it estimates the size of the system prompt, messages, tool calls, tool
+results, and tool schemas. When the configured threshold is reached, older
+messages are persisted under `/conversation_history`, summarized, and replaced
+in the effective model request by a summary plus a recent unsummarized tail.
+The raw graph message log is retained.
+
+The stock model-aware policy is:
+
+- summarize at 85% of `model.profile["max_input_tokens"]`;
+- preserve the newest 10% of the context window;
+- truncate large arguments from old file-tool calls before full compaction;
+- summarize and retry when a model raises LangChain's `ContextOverflowError`.
+
+`langchain-gigachat` 0.5.x does not currently populate `model.profile`.
+Without this information, `deepagents` falls back to a 170,000-token trigger,
+which is not derived from the selected GigaChat deployment. It also cannot
+recognize the provider-specific HTTP 422 `CONTEXT_TOO_LONG` response as a
+LangChain context overflow by itself.
+
+The GigaChat `GET /models/{model}` response contains the model ID, object type,
+and owner, but does not expose a context-window field. Until the API and SDK
+provide it, the harness maintains an explicit model table. The value below was
+measured against the production API on 2026-08-03; deployments can differ, so
+explicit model metadata or an environment override takes precedence:
+
+| Model IDs | Context window |
+| --- | ---: |
+| `GigaChat`, `GigaChat-Pro`, `GigaChat-Max` | 261,120 |
+| `GigaChat-2`, `GigaChat-2-Pro`, `GigaChat-2-Max`, `GigaChat-2-Reasoning` | 261,120 |
+| `GigaChat-3-Lightning`, `GigaChat-3-Pro`, `GigaChat-3-Ultra` | 261,120 |
+
+Version suffixes such as `GigaChat-3-Ultra:32.3.18.5`, provider prefixes, and
+the `-preview` suffix are normalized before lookup.
+
+For the complete stock behavior, pass the profile explicitly when constructing
+the model using metadata from your deployment:
+
+```python
+model = GigaChat(
+    model="GigaChat-3-Ultra",
+    profile={"max_input_tokens": 261_120},
+)
+```
+
+The harness profile also installs `ContextWindowGuardMiddleware` for
+already-created, unprofiled model instances. For IDs in the table it performs
+proactive compaction at 85% of the model window. Unknown IDs use the reactive
+fallback: a GigaChat payload-too-large response is translated into
+`ContextOverflowError`, allowing Deep Agents to compact and retry instead of
+failing the run.
+
+Override the table for a deployment without changing application code:
+
+```bash
+DEEPAGENTS_GIGACHAT_CONTEXT_WINDOW=261120
+DEEPAGENTS_GIGACHAT_SUMMARIZATION_TRIGGER=0.80
+```
+
+When configured, the guard estimates the complete request and triggers the
+standard Deep Agents compaction path at the selected fraction. It only preempts
+requests when there is enough message history to compact. A single oversized
+initial prompt cannot be repaired by conversation summarization and should be
+reduced or moved into workspace files instead.
 
 ## Use With `deepagents-code`
 
@@ -245,18 +319,6 @@ Three independent ways to override the default at runtime:
   launching. (This is honoured by `langchain-gigachat` itself when the
   model name isn't pinned in the config.)
 
-### Self-hosted / IFT GigaChat endpoint
-
-Point `base_url` at your custom host. For Sber's internal IFT, for
-example:
-
-```toml
-[models.providers.gigachat.params]
-base_url = "https://gigachat.ift.sberdevices.ru/v1"
-```
-
-Everything else stays the same.
-
 ## Examples
 
 Runnable examples live in [`examples/`](examples/). The simplest one is
@@ -285,19 +347,19 @@ result = agent.invoke({"messages": "Hi! What can you do?"})
 The benchmark used to validate every profile version of this plugin
 now lives in its own repo:
 [`ai-forever/harness-bench-fast`](https://github.com/ai-forever/harness-bench-fast).
-It is a self-contained agent evaluation (currently **313 tasks**, v0.9.0)
+It is a self-contained agent evaluation (currently **371 tasks**, v0.14.0)
 covering file creation/editing, refactors, project-wide `grep`/`glob`, CSV /
 JSON / JSONL / YAML / TOML / INI / XLSX / SQLite pipelines, pytest-graded
 implementations, composite multi-step pipelines, merge/conflict resolution,
 terminal-style parsing, policy/action JSON tasks, and `MEMORY.md` discipline.
 Every verifier is mechanical — no LLM-as-judge.
 
-Latest results on the full 313-task set, `GigaChat-3-Ultra` at
+Latest results on the full 371-task set, `GigaChat-3-Ultra` at
 `gigachat.sberdevices.ru/v1`, `LocalShellBackend(virtual_mode=True)`:
 
-| Configuration                   | PASS / 313 | %      |
+| Configuration                   | PASS / 371 | %      |
 | ------------------------------- | ---------- | ------ |
-| `deepagents` + this plugin      | 269 / 313  | 85.9 % |
+| `deepagents` + this plugin      | 331 / 371  | 89.2 % |
 
 Historical uplift on the earlier 231-task subset of the same bench:
 
@@ -307,9 +369,15 @@ Historical uplift on the earlier 231-task subset of the same bench:
 | `deepagents` + this plugin (v9)        | 195 / 231  | 84.4 % | +31 (+13.4 pp)     |
 
 Current middleware stack: `ThinkToolMiddleware`, `ShellSafetyMiddleware`,
-`PathNormalizerMiddleware`, `MemoryTaskMiddleware`, `LoopBreakerMiddleware`,
-optional `ToolContractMiddleware`, plus `base_system_prompt` and tool
-description overrides.
+`PathNormalizerMiddleware`, `ContextWindowGuardMiddleware`,
+`DeterministicOutputMiddleware`, `SpecificationAuditMiddleware`,
+`MemoryTaskMiddleware`, `LoopBreakerMiddleware`, optional
+`ToolContractMiddleware`, plus `base_system_prompt` and tool description
+overrides.
+
+For a plain-language explanation of the latest reliability changes, review
+findings, and their full benchmark validation, see
+[`docs/review-fixes-and-benchmark-2026-08-05.md`](docs/review-fixes-and-benchmark-2026-08-05.md).
 
 ## Lint
 
