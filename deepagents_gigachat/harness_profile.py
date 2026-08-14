@@ -730,11 +730,21 @@ class LoopBreakerMiddleware(AgentMiddleware):
     advice in the system prompt help, but on hot paths the model still
     falls into this pattern on a fraction of runs.
 
-    This middleware watches `messages` in `before_model` and, when it sees
-    the same `(tool_name, args)` for 3 consecutive AIMessages, appends a
-    bounded HumanMessage nudges with a forceful instruction to STOP and switch
-    strategy. Separate markers keep a failed-tool loop from suppressing a later
-    empty-grep loop in the same run.
+    This middleware watches `messages` in `before_model` and appends a nudge
+    when it sees any of four signatures:
+
+    * the same `(tool_name, args)` repeated across 3 consecutive AIMessages;
+    * 3 consecutive failures of one error family from the same tool, where the
+      arguments drift but the error does not;
+    * 2 empty `grep` results in a row, common on counting tasks;
+    * a tool-round budget overrun — at 12 rounds, switch to a bounded batch
+      strategy; at 24, finish now.
+
+    Each nudge is a `HumanMessage`, not a `SystemMessage`: GigaChat rejects a
+    system message that is not first in the conversation with a hard 400. Every
+    nudge is bounded — its marker is counted across the whole history, so it is
+    not re-injected — and the markers are separate per signature, so a
+    failed-tool loop cannot suppress a later empty-grep loop in the same run.
     """
 
     name = "LoopBreakerMiddleware"
