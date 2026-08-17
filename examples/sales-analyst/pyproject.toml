@@ -1,0 +1,15 @@
+[project]
+name = "deepagents-gigachat-practice"
+version = "0.1.0"
+description = "Практический блокнот к статье про агентный харнесс: Deep Agents на GigaChat."
+requires-python = ">=3.12"
+dependencies = [
+    "deepagents>=0.6.7",
+    "deepagents-gigachat",
+    "langchain-gigachat",
+    "arize-phoenix",
+    "openinference-instrumentation-langchain",
+    "python-dotenv",
+    "ipykernel",
+    "jupyterlab",
+]

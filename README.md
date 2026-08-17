@@ -329,6 +329,10 @@ Runnable examples live in [`examples/`](examples/). The simplest one is
 uv run python examples/basic_agent.py
 ```
 
+For a complete CSV-to-report workflow, see
+[`examples/sales-analyst`](examples/sales-analyst): a Jupyter notebook where an
+agent analyzes sales data, writes and runs Python code, and produces a report.
+
 Or run this minimal inline example:
 
 ```python
